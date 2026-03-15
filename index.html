@@ -152,6 +152,25 @@
 
     /* LOADING OVERLAY */
     .dash-loading { text-align: center; padding: 40px; color: var(--hint); font-size: 0.9rem; }
+
+    /* FORMAT / PERIOD BUTTONS (export tab) */
+    .fmt-btn {
+      flex: 1;
+      padding: 9px 8px;
+      background: var(--bg2);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      color: var(--hint);
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .fmt-btn.active {
+      background: rgba(58,134,255,0.15);
+      border-color: var(--btn);
+      color: var(--btn);
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -198,17 +217,51 @@
         <button class="period-btn" data-period="month" onclick="selectPeriod(this)">Місяць</button>
       </div>
 
-      <!-- Export buttons (admin only) -->
-      <div id="exportBtns" style="display:none; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
-        <button onclick="exportData('csv')" style="flex:1; padding:9px; background:var(--bg2); border:1px solid var(--border); border-radius:10px; color:var(--text); font-size:0.82rem; cursor:pointer;">⬇️ CSV</button>
-        <button onclick="exportData('html')" style="flex:1; padding:9px; background:var(--bg2); border:1px solid var(--border); border-radius:10px; color:var(--text); font-size:0.82rem; cursor:pointer;">🖨️ HTML / PDF</button>
-      </div>
-
       <!-- Dynamic dashboard content -->
       <div id="dashContent">
         <div class="dash-loading"><div class="spinner" style="margin:0 auto 8px"></div>Завантаження...</div>
       </div>
 
+    </div>
+
+    <!-- Export (admin only) -->
+    <div class="tab-pane" id="tab-export">
+      <div style="padding: 8px 0 16px">
+        <div class="section-title">Сформувати звіт</div>
+
+        <!-- Format selection -->
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-label">Формат</div>
+          <div style="display:flex; gap:8px; margin-top:8px">
+            <button id="fmtCsv" class="fmt-btn active" onclick="selectFmt('csv',this)">⬇️ CSV</button>
+            <button id="fmtHtml" class="fmt-btn" onclick="selectFmt('html',this)">🖨️ HTML / PDF</button>
+          </div>
+        </div>
+
+        <!-- Period selection -->
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-label">Період</div>
+          <div style="display:flex; gap:8px; margin-top:8px">
+            <button id="expDay" class="fmt-btn active" onclick="selectExpPeriod('day',this)">День</button>
+            <button id="expWeek" class="fmt-btn" onclick="selectExpPeriod('week',this)">Тиждень</button>
+            <button id="expMonth" class="fmt-btn" onclick="selectExpPeriod('month',this)">Місяць</button>
+          </div>
+        </div>
+
+        <!-- Date picker -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-label">Дата</div>
+          <input type="date" id="exportDate" style="margin-top:8px; width:100%; background:var(--bg); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:10px 12px; color:var(--text); font-size:1rem; outline:none">
+        </div>
+
+        <!-- Generate button -->
+        <button id="generateBtn" onclick="generateExport()"
+          style="width:100%; background:var(--btn); color:var(--btn-text); border:none; border-radius:12px; padding:14px; font-size:1rem; font-weight:600; cursor:pointer; margin-bottom:12px">
+          📊 Сформувати та завантажити
+        </button>
+
+        <div id="exportStatus" style="text-align:center; font-size:0.82rem; color:var(--hint); min-height:20px"></div>
+      </div>
     </div>
 
     <!-- Profile -->
@@ -228,6 +281,7 @@
 
   <div class="bottom-tabs">
     <button class="tab-btn active" onclick="switchTab('dash',this)"><span>📊</span>Дашборд</button>
+    <button class="tab-btn" id="exportTabBtn" onclick="switchTab('export',this)" style="display:none"><span>📥</span>Витяг</button>
     <button class="tab-btn" onclick="switchTab('profile',this)"><span>👤</span>Профіль</button>
   </div>
 </div>
@@ -528,11 +582,13 @@ async function init() {
       document.getElementById('hRole').textContent = roleLabel;
       buildProfile(user, data.role, data.modules || {});
 
-      // Show period toggle + export for admins
+      // Show period toggle + export tab for admins
       if (isAdminUser()) {
         document.getElementById('periodTabs').style.display = 'flex';
-        const expBtns = document.getElementById('exportBtns');
-        if (expBtns) expBtns.style.display = 'flex';
+        document.getElementById('exportTabBtn').style.display = 'flex';
+        // Set default date for export
+        const expDate = document.getElementById('exportDate');
+        if (expDate) expDate.value = new Date().toISOString().slice(0,10);
       }
 
       show('appScreen');
@@ -557,16 +613,53 @@ async function init() {
 
 init();
 
-    function exportData(fmt) {
+    // Export tab state
+    let exportFmt = 'csv';
+    let exportPeriod = 'day';
+
+    function selectFmt(fmt, btn) {
+      exportFmt = fmt;
+      document.querySelectorAll('.fmt-btn[id^="fmt"]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    function selectExpPeriod(period, btn) {
+      exportPeriod = period;
+      document.querySelectorAll('.fmt-btn[id^="exp"]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    function generateExport() {
       if (!currentUser) return;
-      const period = currentPeriod || 'day';
-      const today = new Date().toISOString().slice(0, 10);
-      const url = `/api/export?user_id=${currentUser.id}&period=${period}&date=${today}&format=${fmt}`;
-      if (fmt === 'csv') {
-        window.location.href = url;
+      const dateVal = document.getElementById('exportDate').value;
+      if (!dateVal) {
+        document.getElementById('exportStatus').textContent = '⚠️ Оберіть дату';
+        return;
+      }
+      const btn = document.getElementById('generateBtn');
+      const status = document.getElementById('exportStatus');
+      btn.disabled = true;
+      btn.textContent = '⏳ Формуємо...';
+      status.textContent = '';
+
+      const url = `/api/export?user_id=${currentUser.id}&period=${exportPeriod}&date=${dateVal}&format=${exportFmt}`;
+
+      if (exportFmt === 'csv') {
+        // Trigger download
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cafe_report_${exportPeriod}_${dateVal}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        status.textContent = '✅ Завантаження розпочато';
       } else {
         window.open(url, '_blank');
+        status.textContent = '✅ Звіт відкрито у новій вкладці';
       }
+
+      btn.disabled = false;
+      btn.textContent = '📊 Сформувати та завантажити';
     }
 </script>
 </body>
