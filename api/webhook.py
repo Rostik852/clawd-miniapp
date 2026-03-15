@@ -321,9 +321,12 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         set_role(conn, uid, role)
         u = get_user(conn, uid)
         display = f"@{u['username']}" if u and u.get("username") else uid_str
-        edit_message(chat_id, message_id, f"Роль {role} призначено для {display}.", reply_markup=admin_keyboard())
-        # Notify user
-        tg_send("sendMessage", chat_id=uid, text=f"Ваш доступ підтверджено. Роль: {role}.\nНатисніть /start")
+        role_labels = {"chef": "Шеф", "barista": "Баріста", "young": "Стажер"}
+        role_label = role_labels.get(role, role)
+        edit_message(chat_id, message_id,
+            f"Роль {role_label} призначено для {display}.",
+            reply_markup=user_manage_keyboard(uid))
+        tg_send("sendMessage", chat_id=uid, text=f"Ваш доступ підтверджено. Роль: {role_label}.\nНатисніть /start")
 
     # ── Revoke ─────────────────────────────────────────────────────────────
     elif data.startswith("revoke:"):
@@ -364,6 +367,12 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
             reply_markup=modules_keyboard(uid, mods),
         )
 
+    # ── Cancel input ──────────────────────────────────────────────────────
+    elif data == "menu:cancel":
+        clear_state(conn, user_id)
+        modules = get_user_modules(conn, user_id)
+        edit_message(chat_id, message_id, "Скасовано. Оберіть дію:", reply_markup=main_menu_keyboard(modules))
+
     # ── Main menu actions ──────────────────────────────────────────────────
     elif data.startswith("menu:"):
         action = data.split(":")[1]
@@ -375,7 +384,8 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         if action == "reports":
             date_str = today_str()
             s = get_summary_day(conn, date_str)
-            edit_message(chat_id, message_id, format_summary(s, date_str))
+            edit_message(chat_id, message_id, format_summary(s, date_str),
+                reply_markup={"inline_keyboard": [[{"text": "◀️ Меню", "callback_data": "menu:back"}]]})
             return
 
         state_map = {
@@ -386,10 +396,16 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
             "withdrawals":  ("waiting_withdrawal",   "Введіть суму виплати (грн):"),
             "expenses":     ("waiting_expenses",     "Введіть суму витрат (грн):"),
         }
+        if action == "back":
+            modules = get_user_modules(conn, user_id)
+            edit_message(chat_id, message_id, "Оберіть дію:", reply_markup=main_menu_keyboard(modules))
+            return
+
         if action in state_map:
             st, prompt = state_map[action]
             set_state(conn, user_id, st)
-            send_message(chat_id, prompt)
+            edit_message(chat_id, message_id, prompt,
+                reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
 
 # ─── Text / number input handler ─────────────────────────────────────────────
 
@@ -399,7 +415,12 @@ def handle_text(conn, user_id, chat_id, text):
     state_data = st_info.get("data", {})
 
     if state is None:
-        send_message(chat_id, "Оберіть дію з меню або введіть /start")
+        user = get_user(conn, user_id)
+        if user and user["is_approved"] and user["role"]:
+            modules = get_user_modules(conn, user_id)
+            send_message(chat_id, "Оберіть дію:", reply_markup=main_menu_keyboard(modules))
+        else:
+            send_message(chat_id, "Натисніть /start")
         return
 
     # ── Waiting for expense note ───────────────────────────────────────────
@@ -407,7 +428,9 @@ def handle_text(conn, user_id, chat_id, text):
         amount = state_data.get("amount", 0)
         add_record(conn, user_id, today_str(), expenses=amount, notes=text)
         clear_state(conn, user_id)
-        send_message(chat_id, f"Витрати {amount:.2f} грн збережено. Примітка: {text}")
+        modules = get_user_modules(conn, user_id)
+        send_message(chat_id, f"✅ Витрати {amount:.2f} грн збережено.\nПримітка: {text}\n\nОберіть дію:",
+            reply_markup=main_menu_keyboard(modules))
         return
 
     # ── Numeric states ─────────────────────────────────────────────────────
@@ -431,16 +454,19 @@ def handle_text(conn, user_id, chat_id, text):
         add_record(conn, user_id, today_str(), **kwargs)
         clear_state(conn, user_id)
         unit = "порцій" if state == "waiting_coffee" else "грн"
-        send_message(chat_id, f"{label} {value:.0f} {unit} збережено.")
+        modules = get_user_modules(conn, user_id)
+        send_message(chat_id, f"✅ {label}: {value:.0f} {unit} збережено.\n\nОберіть дію:",
+            reply_markup=main_menu_keyboard(modules))
 
     elif state == "waiting_expenses":
-        # Need to collect note next
         set_state(conn, user_id, "waiting_expense_note", {"amount": value})
-        send_message(chat_id, "Введіть примітку до витрат:")
+        send_message(chat_id, "Введіть примітку до витрат:",
+            reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
 
     else:
-        send_message(chat_id, "Невідомий стан. Натисніть /start")
+        modules = get_user_modules(conn, user_id)
         clear_state(conn, user_id)
+        send_message(chat_id, "Оберіть дію:", reply_markup=main_menu_keyboard(modules))
 
 # ─── Main update dispatcher ───────────────────────────────────────────────────
 
