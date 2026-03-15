@@ -7,6 +7,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import json
+import re
 from http.server import BaseHTTPRequestHandler
 from datetime import datetime, timezone
 
@@ -17,9 +18,13 @@ from _db import (
     save_user_raw, add_record, get_summary_day,
     set_role, revoke_access, set_module_access,
     get_all_users, get_pending_users, MODULES, ADMIN_ID,
+    get_or_create_session, get_session, update_session,
+    add_snapshot, get_snapshots, get_daily_summary,
 )
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+CURRENCY = "zł"
+DENOMINATIONS = [500, 100, 50, 20, 10, 5, 2, 1]
 
 # ─── Telegram API helpers ──────────────────────────────────────────────────────
 
@@ -49,20 +54,7 @@ def edit_message(chat_id, message_id, text, reply_markup=None):
 def answer_callback(callback_id, text=""):
     return tg_send("answerCallbackQuery", callback_query_id=callback_id, text=text)
 
-# ─── Conversation State (persisted in DB) ─────────────────────────────────────
-
-def _ensure_state_table(conn):
-    with conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS bot_state (
-                user_id BIGINT PRIMARY KEY,
-                state TEXT,
-                data TEXT,
-                updated_at TEXT
-            )
-        """)
-    conn.commit()
-
+# ─── Conversation State ────────────────────────────────────────────────────────
 
 def get_state(conn, user_id):
     with conn.cursor() as cur:
@@ -104,33 +96,44 @@ def clear_state(conn, user_id):
         cur.execute("DELETE FROM bot_state WHERE user_id = %s", (user_id,))
     conn.commit()
 
-# ─── Keyboards ────────────────────────────────────────────────────────────────
+# ─── Bill parser ───────────────────────────────────────────────────────────────
+
+def parse_denominations(text):
+    """
+    Парсить формат: '500x1 100x3 50x2' або '500 1\n100 3'
+    Повертає (total, breakdown_str) або (None, error_str)
+    """
+    text = re.sub(r'[xX\*=]', ' ', text)
+    pairs = re.findall(r'(\d+)\s+(\d+)', text)
+    if not pairs:
+        return None, "Не вдалось розпізнати. Введіть у форматі:\n500x1 100x3 50x2 20x5 10x10"
+
+    total = 0
+    lines = []
+    for denom_str, qty_str in pairs:
+        denom = int(denom_str)
+        qty = int(qty_str)
+        if denom not in DENOMINATIONS:
+            return None, f"Невідомий номінал: {denom} {CURRENCY}\nДозволені: {', '.join(str(d) for d in DENOMINATIONS)}"
+        subtotal = denom * qty
+        total += subtotal
+        lines.append(f"  {denom} {CURRENCY} x {qty} = {subtotal} {CURRENCY}")
+
+    breakdown = "\n".join(lines)
+    return total, breakdown
+
+# ─── Keyboards ─────────────────────────────────────────────────────────────────
 
 def main_menu_keyboard(modules: dict):
-    buttons = []
-    row = []
-
-    mapping = [
-        ("cash_income",   "💵 Готівка"),
-        ("card_income",   "💳 Картка"),
-        ("coffee_count",  "☕ Порції"),
-        ("deposits",      "📥 Вплата"),
-        ("withdrawals",   "📤 Виплата"),
-        ("expenses",      "🧾 Витрати"),
+    """New main menu: snapshot + close day + optional report."""
+    buttons = [
+        [
+            {"text": "📸 Поточний зріз", "callback_data": "snap:start"},
+            {"text": "🔒 Закрити день", "callback_data": "close:start"},
+        ]
     ]
-    for module_key, label in mapping:
-        if modules.get(module_key) or modules.get("coffee_portions") if module_key == "coffee_count" else modules.get(module_key):
-            row.append({"text": label, "callback_data": f"menu:{module_key}"})
-            if len(row) == 2:
-                buttons.append(row)
-                row = []
-
-    if row:
-        buttons.append(row)
-
-    if modules.get("reports", True):
-        buttons.append([{"text": "📊 Звіт", "callback_data": "menu:reports"}])
-
+    if modules.get("reports"):
+        buttons.append([{"text": "📊 Мій звіт", "callback_data": "report:today"}])
     return {"inline_keyboard": buttons}
 
 
@@ -140,6 +143,9 @@ def admin_keyboard():
             [{"text": "👥 Користувачі", "callback_data": "admin:users"}],
             [{"text": "⏳ Очікують",    "callback_data": "admin:pending"}],
             [{"text": "📊 Звіт сьогодні", "callback_data": "admin:report"}],
+            [{"text": "💵 Вплата",       "callback_data": "admin:deposit"},
+             {"text": "💸 Виплата",      "callback_data": "admin:withdrawal"}],
+            [{"text": "🧾 Витрати",      "callback_data": "admin:expenses"}],
         ]
     }
 
@@ -193,60 +199,81 @@ def pending_role_keyboard(uid):
         ]
     }
 
-# ─── Summary formatter ────────────────────────────────────────────────────────
 
-DENOMINATIONS = [500, 100, 50, 20, 10, 5, 2, 1]
-CURRENCY = "zł"
+def cancel_keyboard():
+    return {"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]}
 
-def format_summary(s: dict, date_str: str) -> str:
-    total_income = s.get("cash_income", 0) + s.get("card_income", 0)
-    net = total_income + s.get("cash_deposit", 0) - s.get("cash_withdrawal", 0) - s.get("expenses", 0)
+
+def skip_cancel_keyboard():
+    return {"inline_keyboard": [
+        [{"text": "⏭ Пропустити", "callback_data": "menu:skip"},
+         {"text": "❌ Скасувати", "callback_data": "menu:cancel"}]
+    ]}
+
+# ─── Summary formatters ────────────────────────────────────────────────────────
+
+def format_daily_summary(s: dict) -> str:
+    date_str = s.get('date', '')
+    lines = [f"Звіт за {date_str}", ""]
+    opening = s.get('opening_cash', 0) or 0
+    closing = s.get('closing_cash')
+    cash_income = s.get('cash_income', 0) or 0
+    card_income = s.get('card_income', 0) or 0
+    coffee = s.get('coffee_portions', 0) or 0
+    expenses = s.get('expenses', 0) or 0
+    is_finalized = s.get('is_finalized', False)
+
+    lines.append(f"Розмінка: {opening:.2f} {CURRENCY}")
+    if closing is not None:
+        lines.append(f"Каса (закрита): {closing:.2f} {CURRENCY}")
+        lines.append(f"Виручка готівка: {cash_income:.2f} {CURRENCY}")
+    else:
+        lines.append("Каса: не закрито")
+    lines.append(f"Картка: {card_income:.2f} {CURRENCY}")
+    lines.append(f"Порції кави: {coffee} шт")
+    if expenses:
+        lines.append(f"Витрати: {expenses:.2f} {CURRENCY}")
+
+    snapshots = s.get('snapshots', [])
+    if snapshots:
+        lines.append("")
+        lines.append(f"Зрізи ({len(snapshots)}):")
+        for snap in snapshots:
+            parts = [snap.get('time', '')]
+            if snap.get('cash_amount') is not None:
+                parts.append(f"каса {snap['cash_amount']:.0f} {CURRENCY}")
+            if snap.get('coffee_portions') is not None:
+                parts.append(f"кава {snap['coffee_portions']} шт")
+            lines.append("  " + " | ".join(parts))
+
+    lines.append("")
+    if is_finalized:
+        closed_at = s.get('closed_at', '')
+        lines.append(f"День закрито {closed_at[:16] if closed_at else ''}")
+    else:
+        lines.append("День ще не закрито")
+    return "\n".join(lines)
+
+
+def format_close_confirm(session: dict, date_str: str) -> str:
+    opening = session.get('opening_cash', 0) or 0
+    closing = session.get('closing_cash', 0) or 0
+    cash_income = closing - opening
+    coffee = session.get('coffee_portions', 0) or 0
+    card = session.get('card_income', 0) or 0
     return (
-        f"📊 Звіt за {date_str}\n\n"
-        f"💵 Виручка готівка: {s.get('cash_income', 0):.2f} {CURRENCY}\n"
-        f"💳 Виручка картка:  {s.get('card_income', 0):.2f} {CURRENCY}\n"
-        f"☕ Порції кави:     {int(s.get('coffee_portions', 0))} шт\n"
-        f"📥 Вплата в касу:   {s.get('cash_deposit', 0):.2f} {CURRENCY}\n"
-        f"📤 Виплата з каси:  {s.get('cash_withdrawal', 0):.2f} {CURRENCY}\n"
-        f"🧾 Витрати:         {s.get('expenses', 0):.2f} {CURRENCY}\n"
-        f"─────────────────────\n"
-        f"💰 Загальний дохід: {total_income:.2f} {CURRENCY}\n"
-        f"🏦 Каса нетто:      {net:.2f} {CURRENCY}"
+        f"Закриття дня {date_str}\n\n"
+        f"Готівка в касі: {closing:.2f} {CURRENCY}\n"
+        f"Виручка готівка: {cash_income:.2f} {CURRENCY} (каса - розмінка)\n"
+        f"Порції кави: {coffee} шт\n"
+        f"Картка: {card:.2f} {CURRENCY}"
     )
 
-def parse_denominations(text: str):
-    """
-    Парсить формат: '500x1 100x3 50x2' або '500 1\n100 3'
-    Повертає (total, breakdown_str) або (None, error_str)
-    """
-    import re
-    # Normalize: замінюємо 'x', 'X', '*', '=' на пробіл
-    text = re.sub(r'[xX\*=]', ' ', text)
-    # Знаходимо всі пари чисел
-    pairs = re.findall(r'(\d+)\s+(\d+)', text)
-    if not pairs:
-        return None, "Не вдалось розпізнати. Введіть у форматі:\n500x1 100x3 50x2 20x5 10x10"
-
-    total = 0
-    lines = []
-    for denom_str, qty_str in pairs:
-        denom = int(denom_str)
-        qty = int(qty_str)
-        if denom not in DENOMINATIONS:
-            return None, f"Невідомий номінал: {denom} {CURRENCY}\nДозволені: {', '.join(str(d) for d in DENOMINATIONS)}"
-        subtotal = denom * qty
-        total += subtotal
-        lines.append(f"  {denom} {CURRENCY} × {qty} = {subtotal} {CURRENCY}")
-
-    breakdown = "\n".join(lines)
-    return total, breakdown
-
-# ─── Command handlers ─────────────────────────────────────────────────────────
+# ─── Command handlers ──────────────────────────────────────────────────────────
 
 def handle_start(conn, user_id, username, first_name, last_name, chat_id):
     save_user_raw(conn, user_id, username, first_name, last_name)
     ensure_tables(conn)
-    _ensure_state_table(conn)
     clear_state(conn, user_id)
 
     user = get_user(conn, user_id)
@@ -262,7 +289,6 @@ def handle_start(conn, user_id, username, first_name, last_name, chat_id):
             chat_id,
             "Ваш запит на доступ надіслано адміністратору. Зачекайте підтвердження.",
         )
-        # Notify admin
         display = f"@{username}" if username else f"{first_name or ''} {last_name or ''}".strip()
         tg_send(
             "sendMessage",
@@ -278,12 +304,55 @@ def handle_admin(conn, user_id, chat_id):
         return
     send_message(chat_id, "Адмін панель:", reply_markup=admin_keyboard())
 
-# ─── Callback query handlers ──────────────────────────────────────────────────
+# ─── Snapshot flow helpers ─────────────────────────────────────────────────────
+
+def start_snapshot_flow(conn, chat_id, message_id=None):
+    keyboard = {"inline_keyboard": [
+        [{"text": "☕ Тільки порції кави", "callback_data": "snap:coffee_only"}],
+        [{"text": "💰 Каса + порції",      "callback_data": "snap:cash_and_coffee"}],
+        [{"text": "❌ Скасувати",          "callback_data": "menu:cancel"}],
+    ]}
+    if message_id:
+        edit_message(chat_id, message_id, "Що вносимо?", reply_markup=keyboard)
+    else:
+        send_message(chat_id, "Що вносимо?", reply_markup=keyboard)
+
+
+def start_close_flow(conn, user_id, chat_id, message_id=None):
+    date_str = today_str()
+    session = get_session(conn, date_str)
+
+    if session and session.get('is_finalized'):
+        # Already finalized — show current values with edit option
+        text = format_close_confirm(session, date_str)
+        text += "\n\nДень вже закрито."
+        keyboard = {"inline_keyboard": [
+            [{"text": "✏️ Змінити", "callback_data": "close:edit"}],
+            [{"text": "◀️ Назад",   "callback_data": "menu:cancel"}],
+        ]}
+        if message_id:
+            edit_message(chat_id, message_id, text, reply_markup=keyboard)
+        else:
+            send_message(chat_id, text, reply_markup=keyboard)
+        return
+
+    keyboard = {"inline_keyboard": [
+        [{"text": "💵 Ввести суму",          "callback_data": "close:cash_sum"}],
+        [{"text": "🪙 Порахувати купюри",     "callback_data": "close:cash_bills"}],
+        [{"text": "❌ Скасувати",             "callback_data": "menu:cancel"}],
+    ]}
+    text = "Закриття дня\n\nВведіть суму готівки в касі:"
+    if message_id:
+        edit_message(chat_id, message_id, text, reply_markup=keyboard)
+    else:
+        send_message(chat_id, text, reply_markup=keyboard)
+
+# ─── Callback query handler ────────────────────────────────────────────────────
 
 def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
     answer_callback(callback_id)
 
-    # ── Admin: users list ──────────────────────────────────────────────────
+    # ── Admin panel ────────────────────────────────────────────────────────
     if data == "admin:users":
         if int(user_id) != ADMIN_ID:
             return
@@ -299,7 +368,6 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         rows.append([{"text": "◀️ Назад", "callback_data": "admin:back"}])
         edit_message(chat_id, message_id, "Всі користувачі:", reply_markup={"inline_keyboard": rows})
 
-    # ── Admin: pending ─────────────────────────────────────────────────────
     elif data == "admin:pending":
         if int(user_id) != ADMIN_ID:
             return
@@ -314,18 +382,37 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         rows.append([{"text": "◀️ Назад", "callback_data": "admin:back"}])
         edit_message(chat_id, message_id, "Очікують доступу:", reply_markup={"inline_keyboard": rows})
 
-    # ── Admin: report ──────────────────────────────────────────────────────
     elif data == "admin:report":
         if int(user_id) != ADMIN_ID:
             return
         date_str = today_str()
-        s = get_summary_day(conn, date_str)
-        edit_message(chat_id, message_id, format_summary(s, date_str), reply_markup=admin_keyboard())
+        s = get_daily_summary(conn, date_str)
+        text = format_daily_summary(s)
+        edit_message(chat_id, message_id, text, reply_markup=admin_keyboard())
 
     elif data == "admin:back":
         if int(user_id) != ADMIN_ID:
             return
         edit_message(chat_id, message_id, "Адмін панель:", reply_markup=admin_keyboard())
+
+    # ── Admin: deposit / withdrawal / expenses ─────────────────────────────
+    elif data == "admin:deposit":
+        if int(user_id) != ADMIN_ID:
+            return
+        set_state(conn, user_id, "admin_deposit")
+        edit_message(chat_id, message_id, f"Введіть суму вплати в касу ({CURRENCY}):", reply_markup=cancel_keyboard())
+
+    elif data == "admin:withdrawal":
+        if int(user_id) != ADMIN_ID:
+            return
+        set_state(conn, user_id, "admin_withdrawal")
+        edit_message(chat_id, message_id, f"Введіть суму виплати з каси ({CURRENCY}):", reply_markup=cancel_keyboard())
+
+    elif data == "admin:expenses":
+        if int(user_id) != ADMIN_ID:
+            return
+        set_state(conn, user_id, "admin_expenses")
+        edit_message(chat_id, message_id, f"Введіть суму витрат ({CURRENCY}):", reply_markup=cancel_keyboard())
 
     # ── User detail ────────────────────────────────────────────────────────
     elif data.startswith("user:"):
@@ -342,7 +429,6 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         text = f"Користувач: {display}\nРоль: {role}\nПідтверджено: {approved}"
         edit_message(chat_id, message_id, text, reply_markup=user_manage_keyboard(uid))
 
-    # ── Set role ───────────────────────────────────────────────────────────
     elif data.startswith("setrole:"):
         if int(user_id) != ADMIN_ID:
             return
@@ -358,7 +444,6 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
             reply_markup=user_manage_keyboard(uid))
         tg_send("sendMessage", chat_id=uid, text=f"Ваш доступ підтверджено. Роль: {role_label}.\nНатисніть /start")
 
-    # ── Revoke ─────────────────────────────────────────────────────────────
     elif data.startswith("revoke:"):
         if int(user_id) != ADMIN_ID:
             return
@@ -367,7 +452,6 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         edit_message(chat_id, message_id, "Доступ відкликано.", reply_markup=admin_keyboard())
         tg_send("sendMessage", chat_id=uid, text="Ваш доступ було відкликано.")
 
-    # ── Modules toggle ─────────────────────────────────────────────────────
     elif data.startswith("modules:"):
         if int(user_id) != ADMIN_ID:
             return
@@ -375,11 +459,7 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         mods = get_user_modules(conn, uid)
         u = get_user(conn, uid)
         display = f"@{u['username']}" if u and u.get("username") else str(uid)
-        edit_message(
-            chat_id, message_id,
-            f"Модулі для {display}:",
-            reply_markup=modules_keyboard(uid, mods),
-        )
+        edit_message(chat_id, message_id, f"Модулі для {display}:", reply_markup=modules_keyboard(uid, mods))
 
     elif data.startswith("togglemod:"):
         if int(user_id) != ADMIN_ID:
@@ -391,88 +471,223 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         mods = get_user_modules(conn, uid)
         u = get_user(conn, uid)
         display = f"@{u['username']}" if u and u.get("username") else uid_str
-        edit_message(
-            chat_id, message_id,
-            f"Модулі для {display}:",
-            reply_markup=modules_keyboard(uid, mods),
-        )
+        edit_message(chat_id, message_id, f"Модулі для {display}:", reply_markup=modules_keyboard(uid, mods))
 
-    # ── Cash bills confirm ────────────────────────────────────────────────
-    elif data == "cash_confirm:yes":
-        st_info = get_state(conn, user_id)
-        amount = st_info.get("data", {}).get("amount", 0)
-        add_record(conn, user_id, today_str(), cash_income=amount)
-        clear_state(conn, user_id)
-        modules = get_user_modules(conn, user_id)
-        edit_message(chat_id, message_id,
-            f"✅ Виручка {amount:.2f} {CURRENCY} збережена.\n\nОберіть дію:",
-            reply_markup=main_menu_keyboard(modules))
-
-    # ── Cancel input ──────────────────────────────────────────────────────
+    # ── Cancel / Skip ──────────────────────────────────────────────────────
     elif data == "menu:cancel":
         clear_state(conn, user_id)
+        user = get_user(conn, user_id)
         modules = get_user_modules(conn, user_id)
         edit_message(chat_id, message_id, "Скасовано. Оберіть дію:", reply_markup=main_menu_keyboard(modules))
 
-    # ── Main menu actions ──────────────────────────────────────────────────
-    elif data.startswith("menu:"):
-        action = data.split(":")[1]
+    elif data == "menu:skip":
+        st_info = get_state(conn, user_id)
+        state = st_info.get("state")
+        state_data = st_info.get("data", {})
+        modules = get_user_modules(conn, user_id)
+        _handle_skip(conn, user_id, chat_id, message_id, state, state_data, modules)
+
+    # ── Report: today ──────────────────────────────────────────────────────
+    elif data == "report:today":
+        date_str = today_str()
+        s = get_daily_summary(conn, date_str)
+        text = format_daily_summary(s)
+        edit_message(chat_id, message_id, text, reply_markup={
+            "inline_keyboard": [[{"text": "◀️ Меню", "callback_data": "menu:back"}]]
+        })
+
+    elif data == "menu:back":
+        modules = get_user_modules(conn, user_id)
+        edit_message(chat_id, message_id, "Оберіть дію:", reply_markup=main_menu_keyboard(modules))
+
+    # ── Snapshot flow ──────────────────────────────────────────────────────
+    elif data == "snap:start":
         user = get_user(conn, user_id)
         if not user or not user["is_approved"]:
             send_message(chat_id, "У вас немає доступу.")
             return
+        start_snapshot_flow(conn, chat_id, message_id)
 
-        if action == "reports":
-            date_str = today_str()
-            s = get_summary_day(conn, date_str)
-            edit_message(chat_id, message_id, format_summary(s, date_str),
-                reply_markup={"inline_keyboard": [[{"text": "◀️ Меню", "callback_data": "menu:back"}]]})
+    elif data == "snap:coffee_only":
+        set_state(conn, user_id, "snapshot_coffee", {"type": "coffee_only"})
+        edit_message(chat_id, message_id, "Кількість порцій кави:", reply_markup=cancel_keyboard())
+
+    elif data == "snap:cash_and_coffee":
+        set_state(conn, user_id, "snapshot_cash_method", {"type": "cash_and_coffee"})
+        keyboard = {"inline_keyboard": [
+            [{"text": "💵 Ввести суму",      "callback_data": "snap:cash_sum"}],
+            [{"text": "🪙 Порахувати купюри", "callback_data": "snap:cash_bills"}],
+            [{"text": "❌ Скасувати",         "callback_data": "menu:cancel"}],
+        ]}
+        edit_message(chat_id, message_id, "Оберіть спосіб введення готівки:", reply_markup=keyboard)
+
+    elif data == "snap:cash_sum":
+        st_info = get_state(conn, user_id)
+        state_data = st_info.get("data", {})
+        state_data["cash_method"] = "sum"
+        set_state(conn, user_id, "snapshot_cash_amount", state_data)
+        edit_message(chat_id, message_id, f"Введіть суму готівки ({CURRENCY}):", reply_markup=cancel_keyboard())
+
+    elif data == "snap:cash_bills":
+        st_info = get_state(conn, user_id)
+        state_data = st_info.get("data", {})
+        state_data["cash_method"] = "bills"
+        set_state(conn, user_id, "snapshot_cash_bills", state_data)
+        edit_message(chat_id, message_id,
+            f"Введіть купюри у форматі:\n500x1 100x3 50x2\n\nНомінали: {', '.join(str(d) for d in DENOMINATIONS)} {CURRENCY}",
+            reply_markup=cancel_keyboard())
+
+    elif data == "snap:bills_confirm":
+        st_info = get_state(conn, user_id)
+        state_data = st_info.get("data", {})
+        state_data["confirmed_cash"] = state_data.get("pending_cash", 0)
+        set_state(conn, user_id, "snapshot_coffee", state_data)
+        edit_message(chat_id, message_id,
+            "Кількість порцій кави (або пропустіть):",
+            reply_markup=skip_cancel_keyboard())
+
+    # ── Close day flow ─────────────────────────────────────────────────────
+    elif data == "close:start":
+        user = get_user(conn, user_id)
+        if not user or not user["is_approved"]:
+            send_message(chat_id, "У вас немає доступу.")
             return
+        get_or_create_session(conn, today_str())
+        start_close_flow(conn, user_id, chat_id, message_id)
 
-        state_map = {
-            "card_income":  ("waiting_card",         f"Введіть суму по карті ({CURRENCY}):"),
-            "coffee_count": ("waiting_coffee",       "Введіть кількість порцій кави:"),
-            "deposits":     ("waiting_deposit",      f"Введіть суму вплати в касу ({CURRENCY}):"),
-            "withdrawals":  ("waiting_withdrawal",   f"Введіть суму виплати з каси ({CURRENCY}):"),
-            "expenses":     ("waiting_expenses",     f"Введіть суму витрат ({CURRENCY}):"),
-        }
+    elif data == "close:edit":
+        # Re-enter close wizard even if already finalized
+        keyboard = {"inline_keyboard": [
+            [{"text": "💵 Ввести суму",      "callback_data": "close:cash_sum"}],
+            [{"text": "🪙 Порахувати купюри", "callback_data": "close:cash_bills"}],
+            [{"text": "❌ Скасувати",         "callback_data": "menu:cancel"}],
+        ]}
+        edit_message(chat_id, message_id, "Введіть суму готівки в касі:", reply_markup=keyboard)
 
-        if action == "back":
-            modules = get_user_modules(conn, user_id)
+    elif data == "close:cash_sum":
+        set_state(conn, user_id, "close_cash_amount", {})
+        edit_message(chat_id, message_id, f"Введіть суму готівки в касі ({CURRENCY}):", reply_markup=cancel_keyboard())
+
+    elif data == "close:cash_bills":
+        set_state(conn, user_id, "close_cash_bills", {})
+        edit_message(chat_id, message_id,
+            f"Введіть купюри у форматі:\n500x1 100x3 50x2\n\nНомінали: {', '.join(str(d) for d in DENOMINATIONS)} {CURRENCY}",
+            reply_markup=cancel_keyboard())
+
+    elif data == "close:bills_confirm":
+        st_info = get_state(conn, user_id)
+        state_data = st_info.get("data", {})
+        state_data["closing_cash"] = state_data.get("pending_cash", 0)
+        set_state(conn, user_id, "close_coffee", state_data)
+        edit_message(chat_id, message_id,
+            "Кількість порцій кави за день (або пропустіть):",
+            reply_markup=skip_cancel_keyboard())
+
+    elif data == "close:confirm":
+        st_info = get_state(conn, user_id)
+        state_data = st_info.get("data", {})
+        date_str = today_str()
+        now = datetime.now(timezone.utc).isoformat()
+        update_session(conn, date_str,
+            closing_cash=state_data.get("closing_cash", 0),
+            coffee_portions=state_data.get("coffee_portions", 0),
+            card_income=state_data.get("card_income", 0),
+            is_finalized=1,
+            closed_by=user_id,
+            closed_at=now,
+        )
+        clear_state(conn, user_id)
+        modules = get_user_modules(conn, user_id)
+        edit_message(chat_id, message_id,
+            f"День {date_str} закрито.",
+            reply_markup=main_menu_keyboard(modules))
+
+    elif data == "close:change":
+        # Go back to the beginning of close wizard
+        start_close_flow(conn, user_id, chat_id, message_id)
+
+    else:
+        # Unknown callback — show menu
+        modules = get_user_modules(conn, user_id)
+        edit_message(chat_id, message_id, "Оберіть дію:", reply_markup=main_menu_keyboard(modules))
+
+
+def _handle_skip(conn, user_id, chat_id, message_id, state, state_data, modules):
+    """Handle skip button presses for optional steps."""
+    if state == "snapshot_coffee":
+        # Skip coffee in snapshot — save snapshot now
+        _save_snapshot_and_finish(conn, user_id, chat_id, message_id, state_data, coffee=None, modules=modules)
+
+    elif state == "close_coffee":
+        state_data["coffee_portions"] = 0
+        set_state(conn, user_id, "close_card", state_data)
+        if message_id:
+            edit_message(chat_id, message_id,
+                f"Сума по карті ({CURRENCY}):",
+                reply_markup=skip_cancel_keyboard())
+        else:
+            send_message(chat_id, f"Сума по карті ({CURRENCY}):", reply_markup=skip_cancel_keyboard())
+
+    elif state == "close_card":
+        state_data["card_income"] = 0
+        set_state(conn, user_id, "close_confirm", state_data)
+        _show_close_confirm(conn, user_id, chat_id, message_id, state_data)
+
+    else:
+        clear_state(conn, user_id)
+        if message_id:
             edit_message(chat_id, message_id, "Оберіть дію:", reply_markup=main_menu_keyboard(modules))
-            return
+        else:
+            send_message(chat_id, "Оберіть дію:", reply_markup=main_menu_keyboard(modules))
 
-        # Готівка — окремий флоу з вибором способу
-        if action == "cash_income":
-            edit_message(chat_id, message_id,
-                f"💵 Введення виручки готівкою\n\nОберіть спосіб:",
-                reply_markup={"inline_keyboard": [
-                    [{"text": "💰 Ввести суму", "callback_data": "menu:cash_sum"}],
-                    [{"text": "🪙 Порахувати купюри", "callback_data": "menu:cash_bills"}],
-                    [{"text": "❌ Скасувати", "callback_data": "menu:cancel"}],
-                ]})
-            return
 
-        if action == "cash_sum":
-            set_state(conn, user_id, "waiting_cash")
-            edit_message(chat_id, message_id, f"Введіть суму готівки ({CURRENCY}):",
-                reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
-            return
+def _save_snapshot_and_finish(conn, user_id, chat_id, message_id, state_data, coffee, modules):
+    date_str = today_str()
+    time_str = datetime.now(timezone.utc).strftime('%H:%M')
+    cash = state_data.get("confirmed_cash") or state_data.get("cash_amount")
+    coffee_val = coffee if coffee is not None else state_data.get("coffee_portions")
+    add_snapshot(conn, user_id, date_str, time_str,
+                 cash_amount=cash,
+                 coffee_portions=int(coffee_val) if coffee_val is not None else None)
+    clear_state(conn, user_id)
+    parts = []
+    if cash is not None:
+        parts.append(f"каса {cash:.0f} {CURRENCY}")
+    if coffee_val is not None:
+        parts.append(f"кава {coffee_val} шт")
+    text = "Зріз збережено: " + (", ".join(parts) if parts else "—") + "\n\nОберіть дію:"
+    if message_id:
+        edit_message(chat_id, message_id, text, reply_markup=main_menu_keyboard(modules))
+    else:
+        send_message(chat_id, text, reply_markup=main_menu_keyboard(modules))
 
-        if action == "cash_bills":
-            set_state(conn, user_id, "waiting_cash_bills")
-            edit_message(chat_id, message_id,
-                f"🪙 Введіть купюри у форматі:\n<номінал>x<кількість>\n\nПриклад:\n500x1 100x3 50x2 20x5 10x10\n\nНомінали: 500, 100, 50, 20, 10, 5, 2, 1 {CURRENCY}",
-                reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
-            return
 
-        if action in state_map:
-            st, prompt = state_map[action]
-            set_state(conn, user_id, st)
-            edit_message(chat_id, message_id, prompt,
-                reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
+def _show_close_confirm(conn, user_id, chat_id, message_id, state_data):
+    date_str = today_str()
+    session = get_session(conn, date_str) or {}
+    opening = session.get('opening_cash', 0) or 0
+    closing = state_data.get("closing_cash", 0) or 0
+    cash_income = closing - opening
+    coffee = state_data.get("coffee_portions", 0) or 0
+    card = state_data.get("card_income", 0) or 0
 
-# ─── Text / number input handler ─────────────────────────────────────────────
+    text = (
+        f"Закриття дня {date_str}\n\n"
+        f"Готівка в касі: {closing:.2f} {CURRENCY}\n"
+        f"Виручка готівка: {cash_income:.2f} {CURRENCY} (каса - розмінка)\n"
+        f"Порції кави: {coffee} шт\n"
+        f"Картка: {card:.2f} {CURRENCY}"
+    )
+    keyboard = {"inline_keyboard": [
+        [{"text": "✅ Підтвердити", "callback_data": "close:confirm"},
+         {"text": "✏️ Змінити",    "callback_data": "close:change"}],
+    ]}
+    if message_id:
+        edit_message(chat_id, message_id, text, reply_markup=keyboard)
+    else:
+        send_message(chat_id, text, reply_markup=keyboard)
+
+# ─── Text / number input handler ──────────────────────────────────────────────
 
 def handle_text(conn, user_id, chat_id, text):
     st_info = get_state(conn, user_id)
@@ -488,91 +703,156 @@ def handle_text(conn, user_id, chat_id, text):
             send_message(chat_id, "Натисніть /start")
         return
 
-    # ── Waiting for expense note ───────────────────────────────────────────
-    # ── Купюри: підтвердження ─────────────────────────────────────────────
-    if state == "waiting_cash_bills_confirm":
-        if text.strip().lower() in ("так", "yes", "y", "т", "+", "ok", "ок"):
-            amount = state_data.get("amount", 0)
-            add_record(conn, user_id, today_str(), cash_income=amount)
-            clear_state(conn, user_id)
-            modules = get_user_modules(conn, user_id)
-            send_message(chat_id, f"✅ Виручка {amount:.2f} {CURRENCY} збережена.\n\nОберіть дію:",
-                reply_markup=main_menu_keyboard(modules))
-        else:
-            clear_state(conn, user_id)
-            modules = get_user_modules(conn, user_id)
-            send_message(chat_id, "Скасовано. Оберіть дію:", reply_markup=main_menu_keyboard(modules))
-        return
+    modules = get_user_modules(conn, user_id)
 
-    # ── Купюри: введення ─────────────────────────────────────────────────
-    if state == "waiting_cash_bills":
+    # ── Snapshot: cash amount (sum method) ────────────────────────────────
+    if state == "snapshot_cash_amount":
+        try:
+            value = float(text.replace(",", "."))
+        except ValueError:
+            send_message(chat_id, "Будь ласка, введіть число.", reply_markup=cancel_keyboard())
+            return
+        state_data["confirmed_cash"] = value
+        set_state(conn, user_id, "snapshot_coffee", state_data)
+        send_message(chat_id, "Кількість порцій кави (або пропустіть):", reply_markup=skip_cancel_keyboard())
+
+    # ── Snapshot: cash bills ───────────────────────────────────────────────
+    elif state == "snapshot_cash_bills":
         total, breakdown = parse_denominations(text)
         if total is None:
-            send_message(chat_id, f"⚠️ {breakdown}",
-                reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
+            send_message(chat_id, f"Помилка: {breakdown}", reply_markup=cancel_keyboard())
             return
-        set_state(conn, user_id, "waiting_cash_bills_confirm", {"amount": total})
+        state_data["pending_cash"] = total
+        set_state(conn, user_id, "snapshot_cash_bills_confirm", state_data)
+        keyboard = {"inline_keyboard": [
+            [{"text": "✅ Підтвердити", "callback_data": "snap:bills_confirm"},
+             {"text": "❌ Скасувати",  "callback_data": "menu:cancel"}]
+        ]}
         send_message(chat_id,
-            f"🪙 Розрахунок купюр:\n{breakdown}\n\n💰 Разом: {total} {CURRENCY}\n\nЗберегти? (так / ні)",
-            reply_markup={"inline_keyboard": [
-                [{"text": "✅ Зберегти", "callback_data": "cash_confirm:yes"},
-                 {"text": "❌ Ні", "callback_data": "menu:cancel"}]
-            ]})
-        return
+            f"Розрахунок купюр:\n{breakdown}\n\nРазом: {total} {CURRENCY}",
+            reply_markup=keyboard)
 
-    if state == "waiting_expense_note":
+    # ── Snapshot: coffee count ─────────────────────────────────────────────
+    elif state == "snapshot_coffee":
+        try:
+            coffee = int(float(text.replace(",", ".")))
+        except ValueError:
+            send_message(chat_id, "Введіть ціле число.", reply_markup=skip_cancel_keyboard())
+            return
+        _save_snapshot_and_finish(conn, user_id, chat_id, None, state_data, coffee=coffee, modules=modules)
+
+    # ── Close: cash amount (sum method) ───────────────────────────────────
+    elif state == "close_cash_amount":
+        try:
+            value = float(text.replace(",", "."))
+        except ValueError:
+            send_message(chat_id, "Будь ласка, введіть число.", reply_markup=cancel_keyboard())
+            return
+        state_data["closing_cash"] = value
+        set_state(conn, user_id, "close_coffee", state_data)
+        send_message(chat_id, "Кількість порцій кави за день (або пропустіть):", reply_markup=skip_cancel_keyboard())
+
+    # ── Close: cash bills ─────────────────────────────────────────────────
+    elif state == "close_cash_bills":
+        total, breakdown = parse_denominations(text)
+        if total is None:
+            send_message(chat_id, f"Помилка: {breakdown}", reply_markup=cancel_keyboard())
+            return
+        state_data["pending_cash"] = total
+        set_state(conn, user_id, "close_cash_bills_confirm", state_data)
+        keyboard = {"inline_keyboard": [
+            [{"text": "✅ Підтвердити", "callback_data": "close:bills_confirm"},
+             {"text": "❌ Скасувати",  "callback_data": "menu:cancel"}]
+        ]}
+        send_message(chat_id,
+            f"Розрахунок купюр:\n{breakdown}\n\nРазом: {total} {CURRENCY}",
+            reply_markup=keyboard)
+
+    # ── Close: coffee count ───────────────────────────────────────────────
+    elif state == "close_coffee":
+        try:
+            coffee = int(float(text.replace(",", ".")))
+        except ValueError:
+            send_message(chat_id, "Введіть ціле число.", reply_markup=skip_cancel_keyboard())
+            return
+        state_data["coffee_portions"] = coffee
+        set_state(conn, user_id, "close_card", state_data)
+        send_message(chat_id, f"Сума по карті ({CURRENCY}):", reply_markup=skip_cancel_keyboard())
+
+    # ── Close: card amount ────────────────────────────────────────────────
+    elif state == "close_card":
+        try:
+            card = float(text.replace(",", "."))
+        except ValueError:
+            send_message(chat_id, "Будь ласка, введіть число.", reply_markup=skip_cancel_keyboard())
+            return
+        state_data["card_income"] = card
+        set_state(conn, user_id, "close_confirm", state_data)
+        _show_close_confirm(conn, user_id, chat_id, None, state_data)
+
+    # ── Admin: deposit ────────────────────────────────────────────────────
+    elif state == "admin_deposit":
+        if int(user_id) != ADMIN_ID:
+            clear_state(conn, user_id)
+            return
+        try:
+            value = float(text.replace(",", "."))
+        except ValueError:
+            send_message(chat_id, "Будь ласка, введіть число.", reply_markup=cancel_keyboard())
+            return
+        add_record(conn, user_id, today_str(), cash_deposit=value)
+        clear_state(conn, user_id)
+        send_message(chat_id, f"Вплата {value:.2f} {CURRENCY} збережена.", reply_markup=admin_keyboard())
+
+    # ── Admin: withdrawal ─────────────────────────────────────────────────
+    elif state == "admin_withdrawal":
+        if int(user_id) != ADMIN_ID:
+            clear_state(conn, user_id)
+            return
+        try:
+            value = float(text.replace(",", "."))
+        except ValueError:
+            send_message(chat_id, "Будь ласка, введіть число.", reply_markup=cancel_keyboard())
+            return
+        add_record(conn, user_id, today_str(), cash_withdrawal=value)
+        clear_state(conn, user_id)
+        send_message(chat_id, f"Виплата {value:.2f} {CURRENCY} збережена.", reply_markup=admin_keyboard())
+
+    # ── Admin: expenses ───────────────────────────────────────────────────
+    elif state == "admin_expenses":
+        if int(user_id) != ADMIN_ID:
+            clear_state(conn, user_id)
+            return
+        try:
+            value = float(text.replace(",", "."))
+        except ValueError:
+            send_message(chat_id, "Будь ласка, введіть число.", reply_markup=cancel_keyboard())
+            return
+        set_state(conn, user_id, "admin_expense_note", {"amount": value})
+        send_message(chat_id, "Введіть примітку до витрат:", reply_markup=cancel_keyboard())
+
+    elif state == "admin_expense_note":
+        if int(user_id) != ADMIN_ID:
+            clear_state(conn, user_id)
+            return
         amount = state_data.get("amount", 0)
         add_record(conn, user_id, today_str(), expenses=amount, notes=text)
         clear_state(conn, user_id)
-        modules = get_user_modules(conn, user_id)
-        send_message(chat_id, f"✅ Витрати {amount:.2f} грн збережено.\nПримітка: {text}\n\nОберіть дію:",
-            reply_markup=main_menu_keyboard(modules))
-        return
-
-    # ── Numeric states ─────────────────────────────────────────────────────
-    try:
-        value = float(text.replace(",", "."))
-    except ValueError:
-        send_message(chat_id, "Будь ласка, введіть число.")
-        return
-
-    field_map = {
-        "waiting_cash":       ("cash_income",      "Готівка"),
-        "waiting_card":       ("card_income",       "Картка"),
-        "waiting_coffee":     ("coffee_portions",   "Порції"),
-        "waiting_deposit":    ("cash_deposit",      "Вплата"),
-        "waiting_withdrawal": ("cash_withdrawal",   "Виплата"),
-    }
-
-    if state in field_map:
-        field, label = field_map[state]
-        kwargs = {field: int(value) if state == "waiting_coffee" else value}
-        add_record(conn, user_id, today_str(), **kwargs)
-        clear_state(conn, user_id)
-        unit = "порцій" if state == "waiting_coffee" else "грн"
-        modules = get_user_modules(conn, user_id)
-        send_message(chat_id, f"✅ {label}: {value:.0f} {unit} збережено.\n\nОберіть дію:",
-            reply_markup=main_menu_keyboard(modules))
-
-    elif state == "waiting_expenses":
-        set_state(conn, user_id, "waiting_expense_note", {"amount": value})
-        send_message(chat_id, "Введіть примітку до витрат:",
-            reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
+        send_message(chat_id,
+            f"Витрати {amount:.2f} {CURRENCY} збережено.\nПримітка: {text}",
+            reply_markup=admin_keyboard())
 
     else:
-        modules = get_user_modules(conn, user_id)
         clear_state(conn, user_id)
         send_message(chat_id, "Оберіть дію:", reply_markup=main_menu_keyboard(modules))
 
-# ─── Main update dispatcher ───────────────────────────────────────────────────
+# ─── Main update dispatcher ────────────────────────────────────────────────────
 
 def process_update(update: dict):
     conn = get_conn()
     try:
         ensure_tables(conn)
-        _ensure_state_table(conn)
 
-        # Callback query
         if "callback_query" in update:
             cq = update["callback_query"]
             user = cq["from"]
@@ -583,7 +863,6 @@ def process_update(update: dict):
             handle_callback(conn, cq["id"], user_id, chat_id, message_id, data)
             return
 
-        # Message
         if "message" not in update:
             return
 
@@ -610,7 +889,7 @@ def process_update(update: dict):
     finally:
         conn.close()
 
-# ─── Vercel handler ───────────────────────────────────────────────────────────
+# ─── Vercel handler ────────────────────────────────────────────────────────────
 
 class handler(BaseHTTPRequestHandler):
 
@@ -622,7 +901,6 @@ class handler(BaseHTTPRequestHandler):
             update = json.loads(body)
             process_update(update)
         except Exception as e:
-            # Log but always return 200 so Telegram doesn't retry
             print(f"Error processing update: {e}")
 
         self.send_response(200)
@@ -631,5 +909,4 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(b'{"ok":true}')
 
     def log_message(self, fmt, *args):
-        # Suppress default HTTP logging noise in Vercel logs
         pass
