@@ -195,21 +195,51 @@ def pending_role_keyboard(uid):
 
 # ─── Summary formatter ────────────────────────────────────────────────────────
 
+DENOMINATIONS = [500, 100, 50, 20, 10, 5, 2, 1]
+CURRENCY = "zł"
+
 def format_summary(s: dict, date_str: str) -> str:
     total_income = s.get("cash_income", 0) + s.get("card_income", 0)
     net = total_income + s.get("cash_deposit", 0) - s.get("cash_withdrawal", 0) - s.get("expenses", 0)
     return (
-        f"📊 Звіт за {date_str}\n\n"
-        f"💵 Готівка:    {s.get('cash_income', 0):.2f}\n"
-        f"💳 Картка:     {s.get('card_income', 0):.2f}\n"
-        f"☕ Порції:     {int(s.get('coffee_portions', 0))}\n"
-        f"📥 Вплата:     {s.get('cash_deposit', 0):.2f}\n"
-        f"📤 Виплата:    {s.get('cash_withdrawal', 0):.2f}\n"
-        f"🧾 Витрати:    {s.get('expenses', 0):.2f}\n"
-        f"─────────────────\n"
-        f"💰 Дохід:      {total_income:.2f}\n"
-        f"📈 Нетто:      {net:.2f}"
+        f"📊 Звіt за {date_str}\n\n"
+        f"💵 Виручка готівка: {s.get('cash_income', 0):.2f} {CURRENCY}\n"
+        f"💳 Виручка картка:  {s.get('card_income', 0):.2f} {CURRENCY}\n"
+        f"☕ Порції кави:     {int(s.get('coffee_portions', 0))} шт\n"
+        f"📥 Вплата в касу:   {s.get('cash_deposit', 0):.2f} {CURRENCY}\n"
+        f"📤 Виплата з каси:  {s.get('cash_withdrawal', 0):.2f} {CURRENCY}\n"
+        f"🧾 Витрати:         {s.get('expenses', 0):.2f} {CURRENCY}\n"
+        f"─────────────────────\n"
+        f"💰 Загальний дохід: {total_income:.2f} {CURRENCY}\n"
+        f"🏦 Каса нетто:      {net:.2f} {CURRENCY}"
     )
+
+def parse_denominations(text: str):
+    """
+    Парсить формат: '500x1 100x3 50x2' або '500 1\n100 3'
+    Повертає (total, breakdown_str) або (None, error_str)
+    """
+    import re
+    # Normalize: замінюємо 'x', 'X', '*', '=' на пробіл
+    text = re.sub(r'[xX\*=]', ' ', text)
+    # Знаходимо всі пари чисел
+    pairs = re.findall(r'(\d+)\s+(\d+)', text)
+    if not pairs:
+        return None, "Не вдалось розпізнати. Введіть у форматі:\n500x1 100x3 50x2 20x5 10x10"
+
+    total = 0
+    lines = []
+    for denom_str, qty_str in pairs:
+        denom = int(denom_str)
+        qty = int(qty_str)
+        if denom not in DENOMINATIONS:
+            return None, f"Невідомий номінал: {denom} {CURRENCY}\nДозволені: {', '.join(str(d) for d in DENOMINATIONS)}"
+        subtotal = denom * qty
+        total += subtotal
+        lines.append(f"  {denom} {CURRENCY} × {qty} = {subtotal} {CURRENCY}")
+
+    breakdown = "\n".join(lines)
+    return total, breakdown
 
 # ─── Command handlers ─────────────────────────────────────────────────────────
 
@@ -367,6 +397,17 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
             reply_markup=modules_keyboard(uid, mods),
         )
 
+    # ── Cash bills confirm ────────────────────────────────────────────────
+    elif data == "cash_confirm:yes":
+        st_info = get_state(conn, user_id)
+        amount = st_info.get("data", {}).get("amount", 0)
+        add_record(conn, user_id, today_str(), cash_income=amount)
+        clear_state(conn, user_id)
+        modules = get_user_modules(conn, user_id)
+        edit_message(chat_id, message_id,
+            f"✅ Виручка {amount:.2f} {CURRENCY} збережена.\n\nОберіть дію:",
+            reply_markup=main_menu_keyboard(modules))
+
     # ── Cancel input ──────────────────────────────────────────────────────
     elif data == "menu:cancel":
         clear_state(conn, user_id)
@@ -389,16 +430,40 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
             return
 
         state_map = {
-            "cash_income":  ("waiting_cash",        "Введіть суму готівки (грн):"),
-            "card_income":  ("waiting_card",         "Введіть суму картки (грн):"),
-            "coffee_count": ("waiting_coffee",       "Введіть кількість порцій:"),
-            "deposits":     ("waiting_deposit",      "Введіть суму вплати (грн):"),
-            "withdrawals":  ("waiting_withdrawal",   "Введіть суму виплати (грн):"),
-            "expenses":     ("waiting_expenses",     "Введіть суму витрат (грн):"),
+            "card_income":  ("waiting_card",         f"Введіть суму по карті ({CURRENCY}):"),
+            "coffee_count": ("waiting_coffee",       "Введіть кількість порцій кави:"),
+            "deposits":     ("waiting_deposit",      f"Введіть суму вплати в касу ({CURRENCY}):"),
+            "withdrawals":  ("waiting_withdrawal",   f"Введіть суму виплати з каси ({CURRENCY}):"),
+            "expenses":     ("waiting_expenses",     f"Введіть суму витрат ({CURRENCY}):"),
         }
+
         if action == "back":
             modules = get_user_modules(conn, user_id)
             edit_message(chat_id, message_id, "Оберіть дію:", reply_markup=main_menu_keyboard(modules))
+            return
+
+        # Готівка — окремий флоу з вибором способу
+        if action == "cash_income":
+            edit_message(chat_id, message_id,
+                f"💵 Введення виручки готівкою\n\nОберіть спосіб:",
+                reply_markup={"inline_keyboard": [
+                    [{"text": "💰 Ввести суму", "callback_data": "menu:cash_sum"}],
+                    [{"text": "🪙 Порахувати купюри", "callback_data": "menu:cash_bills"}],
+                    [{"text": "❌ Скасувати", "callback_data": "menu:cancel"}],
+                ]})
+            return
+
+        if action == "cash_sum":
+            set_state(conn, user_id, "waiting_cash")
+            edit_message(chat_id, message_id, f"Введіть суму готівки ({CURRENCY}):",
+                reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
+            return
+
+        if action == "cash_bills":
+            set_state(conn, user_id, "waiting_cash_bills")
+            edit_message(chat_id, message_id,
+                f"🪙 Введіть купюри у форматі:\n<номінал>x<кількість>\n\nПриклад:\n500x1 100x3 50x2 20x5 10x10\n\nНомінали: 500, 100, 50, 20, 10, 5, 2, 1 {CURRENCY}",
+                reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
             return
 
         if action in state_map:
@@ -424,6 +489,37 @@ def handle_text(conn, user_id, chat_id, text):
         return
 
     # ── Waiting for expense note ───────────────────────────────────────────
+    # ── Купюри: підтвердження ─────────────────────────────────────────────
+    if state == "waiting_cash_bills_confirm":
+        if text.strip().lower() in ("так", "yes", "y", "т", "+", "ok", "ок"):
+            amount = state_data.get("amount", 0)
+            add_record(conn, user_id, today_str(), cash_income=amount)
+            clear_state(conn, user_id)
+            modules = get_user_modules(conn, user_id)
+            send_message(chat_id, f"✅ Виручка {amount:.2f} {CURRENCY} збережена.\n\nОберіть дію:",
+                reply_markup=main_menu_keyboard(modules))
+        else:
+            clear_state(conn, user_id)
+            modules = get_user_modules(conn, user_id)
+            send_message(chat_id, "Скасовано. Оберіть дію:", reply_markup=main_menu_keyboard(modules))
+        return
+
+    # ── Купюри: введення ─────────────────────────────────────────────────
+    if state == "waiting_cash_bills":
+        total, breakdown = parse_denominations(text)
+        if total is None:
+            send_message(chat_id, f"⚠️ {breakdown}",
+                reply_markup={"inline_keyboard": [[{"text": "❌ Скасувати", "callback_data": "menu:cancel"}]]})
+            return
+        set_state(conn, user_id, "waiting_cash_bills_confirm", {"amount": total})
+        send_message(chat_id,
+            f"🪙 Розрахунок купюр:\n{breakdown}\n\n💰 Разом: {total} {CURRENCY}\n\nЗберегти? (так / ні)",
+            reply_markup={"inline_keyboard": [
+                [{"text": "✅ Зберегти", "callback_data": "cash_confirm:yes"},
+                 {"text": "❌ Ні", "callback_data": "menu:cancel"}]
+            ]})
+        return
+
     if state == "waiting_expense_note":
         amount = state_data.get("amount", 0)
         add_record(conn, user_id, today_str(), expenses=amount, notes=text)
