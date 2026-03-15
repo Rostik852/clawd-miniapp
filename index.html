@@ -376,7 +376,7 @@ async function loadDashboard(period) {
         .then(r => r.json());
       renderAnalytics(data, container);
     } else {
-      const data = await fetch(`${API}/api/summary`).then(r => r.json());
+      const data = await fetch(`${API}/api/summary?user_id=${currentUser.id}`).then(r => r.json());
       renderDayDashboard(data, container);
     }
   } catch(e) {

@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 
 from _cors import add_cors, handle_options
-from _db import get_conn, ensure_tables, get_user, today_str, ADMIN_ID
+from _db import get_conn, ensure_tables, get_user, today_str, ADMIN_ID, verify_tg_signature
 
 
 def _json_response(handler_obj, status, data):
@@ -45,6 +45,7 @@ class handler(BaseHTTPRequestHandler):
         value = body.get('value')
         notes = body.get('notes', None)
         date = body.get('date', today_str())
+        init_data = body.get('init_data', '')
 
         # Validate required fields
         if not user_id:
@@ -77,6 +78,13 @@ class handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError):
             _json_response(self, 400, {"error": f"Invalid value for field {field}: must be numeric"})
             return
+
+        # Verify Telegram init_data signature if provided and not admin
+        if init_data and user_id != ADMIN_ID:
+            bot_token = os.environ.get('BOT_TOKEN', '')
+            if not verify_tg_signature(init_data, bot_token):
+                _json_response(self, 403, {"error": "Invalid Telegram signature"})
+                return
 
         try:
             conn = get_conn()

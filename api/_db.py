@@ -491,6 +491,23 @@ def _calc_totals(rows):
     }
 
 
+def verify_tg_signature(init_data: str, bot_token: str) -> bool:
+    """Verify Telegram WebApp initData HMAC-SHA256 signature."""
+    import hmac, hashlib
+    from urllib.parse import parse_qsl
+    try:
+        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+        received_hash = parsed.pop('hash', None)
+        if not received_hash:
+            return False
+        data_check_string = '\n'.join(f"{k}={v}" for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b'WebAppData', bot_token.encode(), hashlib.sha256).digest()
+        computed = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(computed, received_hash)
+    except Exception:
+        return False
+
+
 def get_weekly_data(conn):
     """Returns last 7 days of daily_session data for chart."""
     today = datetime.now(timezone.utc).date()
