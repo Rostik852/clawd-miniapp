@@ -277,43 +277,26 @@
       <!-- Status banner (loaded from summary) -->
       <div id="enterStatusBanner" class="status-banner banner-open" style="margin-bottom:14px">🔴 День ще не закрито</div>
 
-      <!-- Section A: Snapshot -->
-      <div class="section-card">
-        <div class="section-card-title">📸 Поточний зріз</div>
+      <!-- Section A: Поточний зріз -->
+      <div class="card" style="margin-bottom:14px">
+        <div style="font-weight:600; margin-bottom:14px">📸 Поточний зріз</div>
 
-        <!-- Snapshot type selector -->
-        <div class="type-selector" id="snapTypeSelector">
-          <button class="type-btn active" onclick="selectSnapType('portions', this)" id="snapTypePortions">☕ Тільки порції</button>
-          <button class="type-btn" onclick="selectSnapType('cashAndPortions', this)" id="snapTypeCash">💰 Каса + порції</button>
+        <div style="margin-bottom:12px">
+          <div class="card-label" style="margin-bottom:6px">Готівка в касі (zł)</div>
+          <input type="number" id="snapCash" inputmode="decimal" placeholder="необов'язково"
+            style="width:100%; background:var(--bg); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:11px 14px; color:var(--text); font-size:1rem; outline:none">
         </div>
 
-        <!-- Coffee portions input (always shown) -->
-        <div id="snapPortionsBlock">
-          <div style="font-size:0.8rem;color:var(--hint);margin-bottom:6px">☕ Кількість порцій</div>
-          <input type="number" class="num-input" id="snapPortions" placeholder="0" min="0" inputmode="numeric">
+        <div style="margin-bottom:16px">
+          <div class="card-label" style="margin-bottom:6px">Порції кави (шт)</div>
+          <input type="number" id="snapCoffee" inputmode="numeric" placeholder="необов'язково"
+            style="width:100%; background:var(--bg); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:11px 14px; color:var(--text); font-size:1rem; outline:none">
         </div>
 
-        <!-- Cash input block (only for cash+portions) -->
-        <div id="snapCashBlock" style="display:none">
-          <div style="font-size:0.8rem;color:var(--hint);margin-bottom:6px">💵 Готівка в касі</div>
-          <div class="mode-toggle">
-            <button class="mode-btn active" onclick="setSnapCashMode('sum', this)" id="snapModeSum">💵 Сума</button>
-            <button class="mode-btn" onclick="setSnapCashMode('bills', this)" id="snapModeBills">🪙 Купюри</button>
-          </div>
-          <!-- Sum input -->
-          <div id="snapSumInput">
-            <input type="number" class="num-input" id="snapCashAmount" placeholder="0.00" min="0" step="0.01" inputmode="decimal">
-          </div>
-          <!-- Bills input -->
-          <div id="snapBillsInput" style="display:none">
-            <div id="snapDenomGrid" class="denom-grid"></div>
-            <div class="denom-total" id="snapDenomTotal">Разом: 0 zł</div>
-            <div class="denom-breakdown" id="snapDenomBreakdown"></div>
-            <button class="action-btn btn-secondary" style="margin-bottom:14px;font-size:0.82rem;padding:9px" onclick="resetDenom('snap')">🗑 Скинути</button>
-          </div>
-        </div>
-
-        <button class="action-btn btn-primary" onclick="saveSnapshot()">📸 Зберегти зріз</button>
+        <button onclick="saveSnapshot()"
+          style="width:100%; background:var(--btn); color:var(--btn-text); border:none; border-radius:10px; padding:13px; font-size:0.95rem; font-weight:600; cursor:pointer">
+          💾 Зберегти зріз
+        </button>
       </div>
 
       <!-- Section B: Close day -->
@@ -835,72 +818,43 @@ init();
     }
 
     // Snapshot section
-    let snapType = 'portions'; // 'portions' | 'cashAndPortions'
-    let snapCashMode = 'sum'; // 'sum' | 'bills'
-
-    function selectSnapType(type, btn) {
-      snapType = type;
-      document.querySelectorAll('#snapTypeSelector .type-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById('snapCashBlock').style.display = type === 'cashAndPortions' ? 'block' : 'none';
-    }
-
-    function setSnapCashMode(mode, btn) {
-      snapCashMode = mode;
-      document.querySelectorAll('#snapCashBlock .mode-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById('snapSumInput').style.display = mode === 'sum' ? 'block' : 'none';
-      document.getElementById('snapBillsInput').style.display = mode === 'bills' ? 'block' : 'none';
-    }
-
     async function saveSnapshot() {
-      if (!currentUser) return;
-      const portions = parseInt(document.getElementById('snapPortions').value) || null;
+      const cashVal = document.getElementById('snapCash').value.trim();
+      const coffeeVal = document.getElementById('snapCoffee').value.trim();
 
-      let cashAmount = null;
-      if (snapType === 'cashAndPortions') {
-        if (snapCashMode === 'sum') {
-          cashAmount = parseFloat(document.getElementById('snapCashAmount').value) || null;
-        } else {
-          cashAmount = getDenomTotal('snap') || null;
-        }
-      }
-
-      if (portions === null && cashAmount === null) {
+      // At least one field must be filled
+      if (!cashVal && !coffeeVal) {
         showToast('⚠️ Введіть хоча б одне значення');
         return;
       }
 
       const now = new Date();
-      const dateStr = now.toISOString().slice(0, 10);
-      const timeStr = now.toTimeString().slice(0, 5);
+      const payload = {
+        user_id: currentUser.id,
+        init_data: tg?.initData || '',
+        date: now.toISOString().slice(0, 10),
+        time: now.toTimeString().slice(0, 5),
+        cash_amount: cashVal ? parseFloat(cashVal) : null,
+        coffee_portions: coffeeVal ? parseInt(coffeeVal) : null,
+      };
 
       try {
-        const resp = await fetch(`${API}/api/snapshot`, {
+        const res = await fetch('/api/snapshot', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: currentUser.id,
-            init_data: tg?.initData || '',
-            cash_amount: cashAmount,
-            coffee_portions: portions,
-            date: dateStr,
-            time: timeStr
-          })
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
         });
-        const data = await resp.json();
+        const data = await res.json();
         if (data.ok) {
-          showToast('✅ Збережено!');
-          document.getElementById('snapPortions').value = '';
-          document.getElementById('snapCashAmount').value = '';
-          resetDenom('snap');
-          loadDashboard('day');
-          loadEnterStatus();
+          document.getElementById('snapCash').value = '';
+          document.getElementById('snapCoffee').value = '';
+          showToast('✅ Зріз збережено!');
+          loadDashboard(currentPeriod || 'day');
         } else {
-          showToast('⚠️ Помилка: ' + (data.error || 'невідома'));
+          showToast('❌ Помилка: ' + (data.error || 'невідома'));
         }
-      } catch(e) {
-        showToast('⚠️ Помилка з\'єднання');
+      } catch (e) {
+        showToast('❌ Помилка з\'єднання');
       }
     }
 
