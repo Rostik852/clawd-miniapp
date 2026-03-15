@@ -2,11 +2,11 @@
 <html lang="uk">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>☕ Cafe App</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
     :root {
       --bg: var(--tg-theme-bg-color, #0f0f1a);
       --bg2: var(--tg-theme-secondary-bg-color, #1a1a2e);
@@ -26,6 +26,8 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       height: 100vh;
       overflow: hidden;
+      overscroll-behavior: none;
+      -webkit-overflow-scrolling: touch;
     }
 
     /* SCREENS */
@@ -68,18 +70,34 @@
     .period-btn.active { background: var(--btn); color: var(--btn-text); }
 
     /* TABS */
-    .tab-content { flex: 1; overflow-y: auto; padding: 14px 14px 8px; }
-    .tab-pane { display: none; }
-    .tab-pane.active { display: block; }
+    .tab-content { flex: 1; overflow-y: auto; padding: 14px 14px 8px; -webkit-overflow-scrolling: touch; scroll-behavior: smooth; }
+    .tab-pane { display: none; opacity: 0; transition: opacity 0.15s ease; }
+    .tab-pane.active { display: block; opacity: 1; }
 
     .bottom-tabs { height: var(--tab-h); background: var(--bg2); display: flex; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.06); }
-    .tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 0.6rem; color: var(--hint); cursor: pointer; transition: color 0.2s; border: none; background: none; }
+    .tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 0.6rem; color: var(--hint); cursor: pointer; transition: color 0.2s; border: none; background: none; position: relative; user-select: none; -webkit-user-select: none; }
     .tab-btn.active { color: var(--btn); }
+    .tab-btn.active::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 24px; height: 2px; background: var(--btn); border-radius: 2px; }
     .tab-btn span { font-size: 1.3rem; }
+
+    /* SKELETON LOADER */
+    .skeleton {
+      background: linear-gradient(90deg, var(--bg2) 25%, rgba(255,255,255,0.05) 50%, var(--bg2) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 8px;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .skeleton-card { height: 80px; border-radius: var(--radius); margin-bottom: 10px; }
+    .skeleton-row { height: 20px; margin-bottom: 8px; }
+    .skeleton-row.short { width: 60%; }
 
     /* CARDS */
     .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-    .card { background: var(--bg2); border-radius: var(--radius); padding: 18px 14px; }
+    .card { background: var(--bg2); border-radius: var(--radius); padding: 18px 14px; user-select: none; -webkit-user-select: none; }
     .card-icon { font-size: 1.8rem; margin-bottom: 8px; }
     .card-label { font-size: 0.78rem; color: var(--hint); margin-bottom: 6px; }
     .card-val { font-size: 1.4rem; font-weight: 700; }
@@ -139,8 +157,10 @@
 
     /* PROFILE */
     .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .mod-card { background: var(--bg2); border-radius: var(--radius); padding: 18px 14px; cursor: pointer; text-align: center; transition: opacity 0.15s; }
-    .mod-card:active { opacity: 0.7; }
+    .mod-card { background: var(--bg2); border-radius: var(--radius); padding: 18px 14px; cursor: pointer; text-align: center; transition: opacity 0.15s; user-select: none; -webkit-user-select: none; }
+    .mod-card:active { opacity: 0.7; transform: scale(0.97); }
+    button:active, .tab-btn:active { transform: scale(0.97); transition: transform 0.1s; }
+    input:focus, textarea:focus { border-color: var(--btn) !important; box-shadow: 0 0 0 2px rgba(58,134,255,0.2); transition: all 0.2s; }
     .mod-icon { font-size: 1.8rem; margin-bottom: 8px; }
     .mod-label { font-size: 0.8rem; font-weight: 600; }
 
@@ -380,6 +400,9 @@ const API = '';
 let currentUser = null;
 let currentPeriod = 'day';
 let dashRefreshTimer = null;
+let cachedSummary = null;
+let lastFetchTime = 0;
+let firstDashLoad = true;
 
 const ROLES = { admin:'Адмін', super_admin:'Супер-адмін', chef:'Шеф', barista:'Баріста', young:'Стажер', trainee:'Стажер' };
 const MODULES_META = {
@@ -453,10 +476,44 @@ function selectPeriod(btn) {
 
 // ── DASHBOARD RENDERING ──────────────────────────────────────────────────────
 
+function showSkeletons() {
+  document.getElementById('dashContent').innerHTML = `
+    <div class="cards">
+      <div class="card skeleton skeleton-card"></div>
+      <div class="card skeleton skeleton-card"></div>
+      <div class="card skeleton skeleton-card"></div>
+      <div class="card skeleton skeleton-card"></div>
+    </div>
+    <div class="skeleton skeleton-row" style="margin-top:14px"></div>
+    <div class="skeleton skeleton-row short"></div>
+    <div class="skeleton skeleton-row"></div>
+  `;
+}
+
 async function loadDashboard(period) {
   period = period || 'day';
   const container = document.getElementById('dashContent');
-  container.innerHTML = '<div class="dash-loading"><div class="spinner" style="margin:0 auto 8px"></div>Завантаження...</div>';
+
+  // Use cache if fresh (<30s) and it's a day view
+  if (period === 'day' && cachedSummary && (Date.now() - lastFetchTime < 30000)) {
+    renderDayDashboard(cachedSummary, container);
+    // Refresh in background silently
+    fetch(`${API}/api/summary?user_id=${currentUser.id}`)
+      .then(r => r.json())
+      .then(data => {
+        cachedSummary = data;
+        lastFetchTime = Date.now();
+        renderDayDashboard(data, container);
+      })
+      .catch(() => {});
+    return;
+  }
+
+  // Show skeleton only on first load
+  if (firstDashLoad) {
+    showSkeletons();
+    firstDashLoad = false;
+  }
 
   try {
     if (isAdminUser() && period !== 'day') {
@@ -465,6 +522,8 @@ async function loadDashboard(period) {
       renderAnalytics(data, container);
     } else {
       const data = await fetch(`${API}/api/summary?user_id=${currentUser.id}`).then(r => r.json());
+      cachedSummary = data;
+      lastFetchTime = Date.now();
       renderDayDashboard(data, container);
     }
   } catch(e) {
@@ -656,7 +715,7 @@ async function init() {
   }
 
   try {
-    const resp = await fetch(API + '/api/auth', {
+    const resp = await fetch(API + '/api/init', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ init_data: tg?.initData||'', user_id: user.id })
@@ -680,7 +739,17 @@ async function init() {
       }
 
       show('appScreen');
-      loadDashboard('day');
+
+      // Pre-populate dashboard from init response (no extra fetch needed)
+      if (data.today) {
+        cachedSummary = data.today;
+        lastFetchTime = Date.now();
+        firstDashLoad = false;
+        const container = document.getElementById('dashContent');
+        renderDayDashboard(data.today, container);
+      } else {
+        loadDashboard('day');
+      }
 
       // Auto-refresh every 30s (day view only)
       dashRefreshTimer = setInterval(() => {
@@ -819,14 +888,20 @@ init();
 
     // Snapshot section
     async function saveSnapshot() {
-      const cashVal = document.getElementById('snapCash').value.trim();
-      const coffeeVal = document.getElementById('snapCoffee').value.trim();
+      const cashInput = document.getElementById('snapCash');
+      const coffeeInput = document.getElementById('snapCoffee');
+      const cashVal = cashInput.value.trim();
+      const coffeeVal = coffeeInput.value.trim();
 
       // At least one field must be filled
       if (!cashVal && !coffeeVal) {
         showToast('⚠️ Введіть хоча б одне значення');
         return;
       }
+
+      // Save previous values for rollback
+      const prevCash = cashVal;
+      const prevCoffee = coffeeVal;
 
       const now = new Date();
       const payload = {
@@ -838,6 +913,11 @@ init();
         coffee_portions: coffeeVal ? parseInt(coffeeVal) : null,
       };
 
+      // Optimistic UI: show saving toast and clear form immediately
+      showToast('💾 Збереження...');
+      cashInput.value = '';
+      coffeeInput.value = '';
+
       try {
         const res = await fetch('/api/snapshot', {
           method: 'POST',
@@ -846,14 +926,20 @@ init();
         });
         const data = await res.json();
         if (data.ok) {
-          document.getElementById('snapCash').value = '';
-          document.getElementById('snapCoffee').value = '';
           showToast('✅ Зріз збережено!');
+          // Silently refresh dashboard in background
+          lastFetchTime = 0; // invalidate cache
           loadDashboard(currentPeriod || 'day');
         } else {
+          // Restore on error
+          cashInput.value = prevCash;
+          coffeeInput.value = prevCoffee;
           showToast('❌ Помилка: ' + (data.error || 'невідома'));
         }
       } catch (e) {
+        // Restore on error
+        cashInput.value = prevCash;
+        coffeeInput.value = prevCoffee;
         showToast('❌ Помилка з\'єднання');
       }
     }
@@ -1021,6 +1107,26 @@ init();
     async function confirmCloseDay() {
       if (!currentUser) return;
       const dateStr = today();
+
+      // Snapshot data for potential rollback
+      const savedCloseDayData = { ...closeDayData };
+
+      // Optimistic UI: show saving toast immediately
+      showToast('💾 Збереження...');
+
+      // Optimistically show finalized state in close day section
+      const body = document.getElementById('closeDayBody');
+      const now = new Date();
+      const timeStr = now.toTimeString().slice(0,5);
+      if (body) {
+        body.innerHTML = `
+          <div style="text-align:center;padding:8px 0 16px">
+            <div style="font-size:2rem;margin-bottom:6px">✅</div>
+            <div style="font-weight:700;margin-bottom:4px">День закрито о ${timeStr}</div>
+            <div style="font-size:0.82rem;color:var(--hint);margin-bottom:12px">Готівка: ${fmt(closeDayData.closing_cash)} · Порції: ${closeDayData.coffee_portions ?? '—'} шт · Картка: ${fmt(closeDayData.card_income)}</div>
+          </div>`;
+      }
+
       try {
         const resp = await fetch(`${API}/api/close_day`, {
           method: 'POST',
@@ -1037,12 +1143,19 @@ init();
         const data = await resp.json();
         if (data.ok) {
           showToast('✅ День закрито!');
+          lastFetchTime = 0; // invalidate cache
           loadDashboard('day');
           loadEnterStatus();
         } else {
+          // Restore wizard on error
+          Object.assign(closeDayData, savedCloseDayData);
+          renderCloseDay(null);
           showToast('⚠️ ' + (data.error || 'Помилка'));
         }
       } catch(e) {
+        // Restore wizard on error
+        Object.assign(closeDayData, savedCloseDayData);
+        renderCloseDay(null);
         showToast('⚠️ Помилка з\'єднання');
       }
     }
