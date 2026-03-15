@@ -80,3 +80,105 @@ def get_user_modules(conn, user_id):
 
 def today_str():
     return datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+
+# ── New functions for webhook/serverless use ──────────────────────────────────
+
+def save_user_raw(conn, user_id, username, first_name, last_name):
+    """Upsert user record (no approval change)."""
+    now = datetime.now(timezone.utc).isoformat()
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO users (id, username, first_name, last_name, joined_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                username = EXCLUDED.username,
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name
+        """, (user_id, username, first_name, last_name, now))
+    conn.commit()
+
+
+def add_record(conn, user_id, date_str, **fields):
+    """Insert a new cash-flow record. Accepts keyword args matching columns."""
+    allowed = {
+        'cash_income', 'card_income', 'coffee_portions',
+        'cash_deposit', 'cash_withdrawal', 'expenses', 'notes'
+    }
+    clean = {k: v for k, v in fields.items() if k in allowed}
+    if not clean:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    cols = ', '.join(['user_id', 'date', 'created_at'] + list(clean.keys()))
+    placeholders = ', '.join(['%s'] * (3 + len(clean)))
+    values = [user_id, date_str, now] + list(clean.values())
+    with conn.cursor() as cur:
+        cur.execute(
+            f"INSERT INTO records ({cols}) VALUES ({placeholders})",
+            values
+        )
+    conn.commit()
+
+
+def get_summary_day(conn, date_str):
+    """Return aggregated totals for a given date."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            SELECT
+                COALESCE(SUM(cash_income), 0)      AS cash_income,
+                COALESCE(SUM(card_income), 0)      AS card_income,
+                COALESCE(SUM(coffee_portions), 0)  AS coffee_portions,
+                COALESCE(SUM(cash_deposit), 0)     AS cash_deposit,
+                COALESCE(SUM(cash_withdrawal), 0)  AS cash_withdrawal,
+                COALESCE(SUM(expenses), 0)         AS expenses
+            FROM records
+            WHERE date = %s
+        """, (date_str,))
+        return dict(cur.fetchone())
+
+
+def set_role(conn, user_id, role):
+    """Set role and approve the user."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE users SET role = %s, is_approved = 1 WHERE id = %s",
+            (role, user_id)
+        )
+    conn.commit()
+
+
+def revoke_access(conn, user_id):
+    """Remove role and revoke approval."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE users SET role = NULL, is_approved = 0 WHERE id = %s",
+            (user_id,)
+        )
+    conn.commit()
+
+
+def set_module_access(conn, user_id, module, enabled):
+    """Enable or disable a module for a user."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO module_access (user_id, module, enabled)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, module) DO UPDATE SET enabled = EXCLUDED.enabled
+        """, (user_id, module, 1 if enabled else 0))
+    conn.commit()
+
+
+def get_all_users(conn):
+    """Return list of all users as dicts."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM users ORDER BY joined_at DESC")
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_pending_users(conn):
+    """Return users who are not yet approved."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM users WHERE is_approved = 0 ORDER BY joined_at DESC"
+        )
+        return [dict(r) for r in cur.fetchall()]
