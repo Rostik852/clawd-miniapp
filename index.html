@@ -1,83 +1,1571 @@
 <!DOCTYPE html>
 <html lang="uk">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>clawd app</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>☕ Cafe App</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: var(--tg-theme-bg-color, #1a1a2e);
-      color: var(--tg-theme-text-color, #eee);
-      min-height: 100vh;
-      display: flex;
+    /* ══════════════════════════════════════════
+       CSS VARIABLES & RESET
+    ══════════════════════════════════════════ */
+    :root {
+      --tg-bg: var(--tg-theme-bg-color, #1a1a2e);
+      --tg-secondary-bg: var(--tg-theme-secondary-bg-color, #16213e);
+      --tg-text: var(--tg-theme-text-color, #e0e0e0);
+      --tg-hint: var(--tg-theme-hint-color, #8899aa);
+      --tg-link: var(--tg-theme-link-color, #4da3ff);
+      --tg-btn: var(--tg-theme-button-color, #3a86ff);
+      --tg-btn-text: var(--tg-theme-button-text-color, #ffffff);
+
+      --bg: #0f0f1a;
+      --surface: #1a1a2e;
+      --surface2: #16213e;
+      --surface3: #0d1b2a;
+      --border: rgba(255,255,255,0.07);
+      --accent: #4da3ff;
+      --accent2: #7b5ea7;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --text: #e8eaf0;
+      --text-secondary: #8892a4;
+      --text-muted: #4a5568;
+      --card-shadow: 0 4px 24px rgba(0,0,0,0.4);
+      --radius: 16px;
+      --radius-sm: 10px;
+      --tab-h: 64px;
+      --header-h: 64px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      overscroll-behavior: none;
+    }
+
+    /* ══════════════════════════════════════════
+       LOADER
+    ══════════════════════════════════════════ */
+    #loader {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: var(--bg);
+      z-index: 9999;
+      gap: 20px;
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+    #loader.hide { opacity: 0; pointer-events: none; transform: scale(0.95); }
+    .loader-logo {
+      font-size: 56px;
+      animation: pulse-logo 2s ease-in-out infinite;
+    }
+    @keyframes pulse-logo {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.1); opacity: 0.8; }
+    }
+    .loader-text { font-size: 18px; font-weight: 600; color: var(--text); }
+    .loader-sub { font-size: 13px; color: var(--text-secondary); }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ══════════════════════════════════════════
+       STATUS SCREENS (pending / error)
+    ══════════════════════════════════════════ */
+    .status-screen {
+      position: fixed; inset: 0;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: var(--bg); z-index: 100; gap: 16px;
+      padding: 32px; text-align: center;
+    }
+    .status-screen.active { display: flex; }
+    .status-icon { font-size: 64px; margin-bottom: 8px; }
+    .status-title { font-size: 22px; font-weight: 700; }
+    .status-msg { font-size: 14px; color: var(--text-secondary); line-height: 1.6; max-width: 300px; }
+    .status-btn {
+      margin-top: 8px;
+      padding: 14px 28px;
+      border-radius: 12px;
+      background: var(--accent);
+      color: #fff; font-size: 15px; font-weight: 600;
+      border: none; cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .status-btn:active { transform: scale(0.97); opacity: 0.85; }
+
+    /* ══════════════════════════════════════════
+       APP SHELL
+    ══════════════════════════════════════════ */
+    #app {
+      display: none;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
+      height: 100dvh;
+      overflow: hidden;
     }
-    .card {
-      background: var(--tg-theme-secondary-bg-color, #16213e);
+    #app.active { display: flex; }
+
+    /* ══════════════════════════════════════════
+       HEADER
+    ══════════════════════════════════════════ */
+    .app-header {
+      flex-shrink: 0;
+      height: var(--header-h);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 16px;
+      gap: 12px;
+      position: relative;
+    }
+    .header-logo { font-size: 26px; }
+    .header-info { flex: 1; }
+    .header-title {
+      font-size: 17px; font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .header-date { font-size: 12px; color: var(--text-secondary); }
+    .role-badge {
+      padding: 4px 10px;
       border-radius: 20px;
-      padding: 32px 24px;
-      max-width: 360px;
-      width: 100%;
-      text-align: center;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px;
     }
-    .emoji { font-size: 3rem; margin-bottom: 16px; }
-    h1 { font-size: 1.5rem; margin-bottom: 8px; }
-    p { font-size: 0.9rem; opacity: 0.7; margin-bottom: 24px; }
-    .user-info {
-      background: rgba(255,255,255,0.05);
-      border-radius: 12px;
+    .role-barista { background: rgba(77,163,255,0.15); color: #4da3ff; }
+    .role-chef    { background: rgba(34,197,94,0.15);  color: #22c55e; }
+    .role-admin   { background: rgba(239,68,68,0.15);  color: #ef4444; }
+    .role-trainee { background: rgba(245,158,11,0.15); color: #f59e0b; }
+
+    /* ══════════════════════════════════════════
+       CONTENT AREA
+    ══════════════════════════════════════════ */
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
+    }
+    .content-area::-webkit-scrollbar { display: none; }
+    .tab-pane { display: none; padding: 16px 16px calc(var(--tab-h) + 16px); }
+    .tab-pane.active { display: block; }
+
+    /* ══════════════════════════════════════════
+       BOTTOM TABS
+    ══════════════════════════════════════════ */
+    .bottom-tabs {
+      flex-shrink: 0;
+      height: var(--tab-h);
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      position: relative;
+    }
+    .tab-item {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 3px; cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .tab-item::after {
+      content: '';
+      position: absolute; top: 0; left: 20%; right: 20%;
+      height: 2px; border-radius: 0 0 4px 4px;
+      background: var(--accent);
+      transform: scaleX(0);
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .tab-item.active::after { transform: scaleX(1); }
+    .tab-icon { font-size: 22px; transition: transform 0.2s ease; }
+    .tab-item.active .tab-icon { transform: scale(1.15); }
+    .tab-label {
+      font-size: 10px; font-weight: 500;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+    }
+    .tab-item.active .tab-label { color: var(--accent); }
+    .tab-item:active .tab-icon { transform: scale(0.92); }
+
+    /* ══════════════════════════════════════════
+       DASHBOARD
+    ══════════════════════════════════════════ */
+    .section-title {
+      font-size: 13px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-title::after {
+      content: '';
+      flex: 1; height: 1px;
+      background: var(--border);
+    }
+
+    /* Summary Cards Grid */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .summary-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 14px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s ease;
+    }
+    .summary-card:active { transform: scale(0.97); }
+    .summary-card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    }
+    .summary-card.cash::before   { background: linear-gradient(90deg, #22c55e, #16a34a); }
+    .summary-card.card::before   { background: linear-gradient(90deg, #4da3ff, #2563eb); }
+    .summary-card.coffee::before { background: linear-gradient(90deg, #f59e0b, #d97706); }
+    .summary-card.kasa::before   { background: linear-gradient(90deg, #a855f7, #7c3aed); }
+
+    .card-icon { font-size: 22px; margin-bottom: 8px; }
+    .card-label {
+      font-size: 11px; font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+    .card-value {
+      font-size: 22px; font-weight: 700;
+      letter-spacing: -0.5px;
+      transition: opacity 0.3s;
+    }
+    .card-value.loading { opacity: 0.4; }
+    .card-unit { font-size: 12px; font-weight: 400; color: var(--text-secondary); }
+
+    /* Weekly Chart */
+    .chart-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+    .chart-title {
+      font-size: 14px; font-weight: 600;
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .bar-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      height: 100px;
+    }
+    .bar-col {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 6px;
+    }
+    .bar-wrap {
+      width: 100%; flex: 1;
+      display: flex; align-items: flex-end;
+    }
+    .bar {
+      width: 100%;
+      background: linear-gradient(180deg, #4da3ff 0%, #2563eb 100%);
+      border-radius: 4px 4px 0 0;
+      min-height: 4px;
+      transition: height 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+      position: relative;
+    }
+    .bar.today { background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%); }
+    .bar-day { font-size: 10px; color: var(--text-secondary); text-align: center; }
+    .bar-amount { font-size: 9px; color: var(--text-muted); text-align: center; }
+
+    /* Records List */
+    .records-list { display: flex; flex-direction: column; gap: 8px; }
+    .record-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      display: flex; align-items: flex-start;
+      gap: 12px;
+      transition: transform 0.15s ease;
+    }
+    .record-item:active { transform: scale(0.99); }
+    .record-avatar {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700;
+      flex-shrink: 0; color: white;
+    }
+    .record-info { flex: 1; min-width: 0; }
+    .record-name {
+      font-size: 13px; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .record-time { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+    .record-amounts {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+    }
+    .amount-chip {
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 11px; font-weight: 600;
+    }
+    .chip-cash   { background: rgba(34,197,94,0.12);  color: #22c55e; }
+    .chip-card   { background: rgba(77,163,255,0.12); color: #4da3ff; }
+    .chip-coffee { background: rgba(245,158,11,0.12); color: #f59e0b; }
+    .chip-exp    { background: rgba(239,68,68,0.12);  color: #ef4444; }
+    .chip-dep    { background: rgba(168,85,247,0.12); color: #a855f7; }
+    .chip-with   { background: rgba(244,114,182,0.12);color: #f472b6; }
+
+    /* ══════════════════════════════════════════
+       TAB 2: ВНЕСТИ
+    ══════════════════════════════════════════ */
+    .module-grid {
+      display: flex; flex-direction: column;
+      gap: 10px;
+    }
+    .module-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      display: flex; align-items: center;
+      gap: 16px; cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative; overflow: hidden;
+    }
+    .module-card::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: white; opacity: 0;
+      transition: opacity 0.1s;
+    }
+    .module-card:active::after { opacity: 0.05; }
+    .module-card:active { transform: scale(0.98); }
+    .module-emoji {
+      width: 48px; height: 48px;
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; flex-shrink: 0;
+    }
+    .em-cash   { background: rgba(34,197,94,0.15); }
+    .em-card   { background: rgba(77,163,255,0.15); }
+    .em-coffee { background: rgba(245,158,11,0.15); }
+    .em-dep    { background: rgba(168,85,247,0.15); }
+    .em-with   { background: rgba(244,114,182,0.15); }
+    .em-exp    { background: rgba(239,68,68,0.15); }
+
+    .module-text { flex: 1; }
+    .module-name { font-size: 16px; font-weight: 600; }
+    .module-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .module-arrow {
+      font-size: 18px; color: var(--text-muted);
+      transition: transform 0.2s;
+    }
+    .module-card:active .module-arrow { transform: translateX(4px); }
+
+    /* ══════════════════════════════════════════
+       TAB 3: АНАЛІТИКА
+    ══════════════════════════════════════════ */
+    .analytics-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .analytics-header {
+      padding: 14px 16px;
+      font-size: 14px; font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .stat-row {
+      display: flex; justify-content: space-between; align-items: center;
       padding: 12px 16px;
-      font-size: 0.85rem;
-      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
     }
-    button {
-      background: var(--tg-theme-button-color, #4a9eff);
-      color: var(--tg-theme-button-text-color, #fff);
-      border: none;
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { font-size: 13px; color: var(--text-secondary); }
+    .stat-value { font-size: 14px; font-weight: 700; }
+    .stat-value.positive { color: var(--success); }
+    .stat-value.negative { color: var(--danger); }
+
+    .progress-section { padding: 16px; }
+    .progress-item { margin-bottom: 14px; }
+    .progress-header {
+      display: flex; justify-content: space-between;
+      font-size: 12px; margin-bottom: 6px;
+    }
+    .progress-label { color: var(--text-secondary); }
+    .progress-val { font-weight: 600; }
+    .progress-bar-bg {
+      height: 8px; border-radius: 4px;
+      background: var(--surface3); overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%; border-radius: 4px;
+      transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .fill-income  { background: linear-gradient(90deg, #22c55e, #16a34a); }
+    .fill-expense { background: linear-gradient(90deg, #ef4444, #dc2626); }
+
+    /* ══════════════════════════════════════════
+       TAB 4: ПРОФІЛЬ
+    ══════════════════════════════════════════ */
+    .profile-header {
+      display: flex; flex-direction: column;
+      align-items: center; padding: 24px 16px 20px;
+      text-align: center;
+    }
+    .profile-avatar {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4da3ff, #a855f7);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px; font-weight: 700; color: white;
+      margin-bottom: 14px;
+      box-shadow: 0 8px 24px rgba(77,163,255,0.3);
+      position: relative; overflow: hidden;
+    }
+    .profile-avatar img {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .profile-name {
+      font-size: 20px; font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .profile-username {
+      font-size: 14px; color: var(--text-secondary);
+      margin-bottom: 10px;
+    }
+
+    .profile-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+    .profile-row {
+      display: flex; align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+    .profile-row:last-child { border-bottom: none; }
+    .profile-row-icon { font-size: 18px; width: 24px; text-align: center; }
+    .profile-row-text { flex: 1; }
+    .profile-row-label { font-size: 12px; color: var(--text-secondary); }
+    .profile-row-value { font-size: 14px; font-weight: 500; }
+
+    .modules-list {
+      padding: 12px 16px;
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .module-pill {
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px; font-weight: 500;
+      background: rgba(77,163,255,0.1);
+      color: var(--accent);
+      border: 1px solid rgba(77,163,255,0.2);
+      display: flex; align-items: center; gap: 5px;
+    }
+
+    .app-version {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 8px;
+    }
+
+    /* ══════════════════════════════════════════
+       MODAL / BOTTOM SHEET
+    ══════════════════════════════════════════ */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .modal-backdrop.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+    .bottom-sheet {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--surface);
+      border-radius: 20px 20px 0 0;
+      z-index: 201;
+      transform: translateY(100%);
+      transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      padding: 0 0 32px;
+      max-height: 85vh;
+      overflow-y: auto;
+    }
+    .bottom-sheet.show { transform: translateY(0); }
+    .sheet-handle {
+      width: 36px; height: 4px;
+      border-radius: 2px;
+      background: var(--border);
+      margin: 10px auto 0;
+    }
+    .sheet-header {
+      display: flex; align-items: center;
+      padding: 16px 20px 12px;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sheet-title-icon {
+      width: 40px; height: 40px;
       border-radius: 12px;
-      padding: 14px 32px;
-      font-size: 1rem;
-      cursor: pointer;
-      width: 100%;
-      font-weight: 600;
-      transition: opacity 0.2s;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
     }
-    button:active { opacity: 0.8; }
+    .sheet-title { font-size: 17px; font-weight: 700; }
+    .sheet-close {
+      margin-left: auto;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--surface2);
+      border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary);
+      font-size: 16px;
+      transition: background 0.2s;
+    }
+    .sheet-close:hover { background: var(--surface3); }
+    .sheet-body { padding: 20px; }
+
+    .input-group { margin-bottom: 16px; }
+    .input-label {
+      display: block; font-size: 12px; font-weight: 500;
+      color: var(--text-secondary); margin-bottom: 8px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .input-field {
+      width: 100%; padding: 14px 16px;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      color: var(--text);
+      font-size: 17px; font-weight: 500;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      -webkit-appearance: none;
+    }
+    .input-field:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(77,163,255,0.15);
+    }
+    .input-field::placeholder { color: var(--text-muted); }
+    textarea.input-field {
+      resize: none; min-height: 80px;
+      font-size: 14px; line-height: 1.5;
+    }
+
+    .save-btn {
+      width: 100%; padding: 16px;
+      border-radius: 14px;
+      border: none; cursor: pointer;
+      font-size: 16px; font-weight: 700;
+      background: var(--tg-btn, #3a86ff);
+      color: var(--tg-btn-text, #ffffff);
+      transition: all 0.2s ease;
+      position: relative; overflow: hidden;
+    }
+    .save-btn:active { transform: scale(0.97); opacity: 0.9; }
+    .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .save-btn .btn-content { display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+    /* ══════════════════════════════════════════
+       TOAST
+    ══════════════════════════════════════════ */
+    .toast-container {
+      position: fixed; top: 80px; left: 16px; right: 16px;
+      z-index: 500;
+      display: flex; flex-direction: column; gap: 8px;
+      pointer-events: none;
+    }
+    .toast {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 18px;
+      display: flex; align-items: center; gap: 10px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      transform: translateY(-20px) scale(0.95);
+      opacity: 0;
+      transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .toast.show { transform: translateY(0) scale(1); opacity: 1; }
+    .toast.hide { transform: translateY(-10px) scale(0.98); opacity: 0; }
+    .toast-icon { font-size: 20px; }
+    .toast-text { font-size: 14px; font-weight: 500; }
+
+    /* ══════════════════════════════════════════
+       EMPTY STATES
+    ══════════════════════════════════════════ */
+    .empty-state {
+      display: flex; flex-direction: column;
+      align-items: center; padding: 40px 20px;
+      color: var(--text-secondary);
+      text-align: center; gap: 10px;
+    }
+    .empty-icon { font-size: 40px; opacity: 0.5; }
+    .empty-text { font-size: 14px; }
+
+    /* ══════════════════════════════════════════
+       SKELETON LOADERS
+    ══════════════════════════════════════════ */
+    .skeleton {
+      background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 6px;
+    }
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .skeleton-text { height: 14px; width: 80%; margin: 4px 0; }
+    .skeleton-value { height: 28px; width: 60%; margin: 8px 0; }
+
+    /* ══════════════════════════════════════════
+       PULL TO REFRESH INDICATOR
+    ══════════════════════════════════════════ */
+    .refresh-indicator {
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px; padding: 10px;
+      font-size: 12px; color: var(--text-secondary);
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .refresh-indicator.show { opacity: 1; }
+    .refresh-spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    /* ══════════════════════════════════════════
+       UTILITIES
+    ══════════════════════════════════════════ */
+    .mt-8 { margin-top: 8px; }
+    .mt-16 { margin-top: 16px; }
+    .text-center { text-align: center; }
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
+
+    /* Fade-in animation for list items */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeInUp 0.35s ease forwards; }
+    .fade-in:nth-child(1)  { animation-delay: 0.00s; }
+    .fade-in:nth-child(2)  { animation-delay: 0.04s; }
+    .fade-in:nth-child(3)  { animation-delay: 0.08s; }
+    .fade-in:nth-child(4)  { animation-delay: 0.12s; }
+    .fade-in:nth-child(5)  { animation-delay: 0.16s; }
+    .fade-in:nth-child(6)  { animation-delay: 0.20s; }
+    .fade-in:nth-child(7)  { animation-delay: 0.24s; }
+    .fade-in:nth-child(8)  { animation-delay: 0.28s; }
+    .fade-in:nth-child(9)  { animation-delay: 0.32s; }
+    .fade-in:nth-child(10) { animation-delay: 0.36s; }
+
+    /* Refresh button */
+    .refresh-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: transparent; border: none; cursor: pointer;
+      color: var(--text-secondary); font-size: 18px;
+      transition: transform 0.3s, color 0.2s;
+    }
+    .refresh-btn:active { transform: rotate(180deg); color: var(--accent); }
+    .refresh-btn.spinning { animation: spin 0.7s linear infinite; color: var(--accent); }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="emoji">🐾</div>
-    <h1>clawd app</h1>
-    <p>Твій перший Telegram Mini App</p>
-    <div class="user-info" id="user-info">Завантаження...</div>
-    <button onclick="handleClick()">Привіт!</button>
+
+<!-- ═══════════════ LOADER ═══════════════ -->
+<div id="loader">
+  <div class="loader-logo">☕</div>
+  <div class="loader-text">Cafe App</div>
+  <div class="loader-sub">Завантаження...</div>
+  <div class="spinner"></div>
+</div>
+
+<!-- ═══════════════ PENDING SCREEN ═══════════════ -->
+<div id="pendingScreen" class="status-screen">
+  <div class="status-icon">🕐</div>
+  <div class="status-title">Очікуємо підтвердження</div>
+  <div class="status-msg">Ваш запит на доступ надіслано. Зверніться до адміністратора для активації облікового запису.</div>
+  <button class="status-btn" onclick="location.reload()">🔄 Оновити</button>
+</div>
+
+<!-- ═══════════════ ERROR SCREEN ═══════════════ -->
+<div id="errorScreen" class="status-screen">
+  <div class="status-icon">⚠️</div>
+  <div class="status-title">Помилка підключення</div>
+  <div class="status-msg" id="errorMsg">Не вдалося з'єднатися з сервером. Перевірте інтернет-з'єднання та спробуйте знову.</div>
+  <button class="status-btn" onclick="location.reload()">🔄 Спробувати знову</button>
+</div>
+
+<!-- ═══════════════ MAIN APP ═══════════════ -->
+<div id="app">
+  <!-- HEADER -->
+  <header class="app-header">
+    <div class="header-logo">☕</div>
+    <div class="header-info">
+      <div class="header-title">Cafe App</div>
+      <div class="header-date" id="headerDate"></div>
+    </div>
+    <span class="role-badge" id="roleBadge"></span>
+    <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()" title="Оновити">↻</button>
+  </header>
+
+  <!-- CONTENT -->
+  <div class="content-area">
+    <!-- TAB 1: DASHBOARD -->
+    <div class="tab-pane active" id="tab-dashboard">
+      <div class="refresh-indicator" id="refreshIndicator">
+        <div class="refresh-spinner"></div>
+        <span>Оновлення...</span>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="section-title">💰 Зведення сьогодні</div>
+      <div class="summary-grid" id="summaryGrid">
+        <div class="summary-card cash">
+          <div class="card-icon">💵</div>
+          <div class="card-label">Готівка нетто</div>
+          <div class="card-value" id="cardCash">—</div>
+        </div>
+        <div class="summary-card card">
+          <div class="card-icon">💳</div>
+          <div class="card-label">Картка</div>
+          <div class="card-value" id="cardCard">—</div>
+        </div>
+        <div class="summary-card coffee">
+          <div class="card-icon">☕</div>
+          <div class="card-label">Порцій кави</div>
+          <div class="card-value" id="cardCoffee">—</div>
+        </div>
+        <div class="summary-card kasa">
+          <div class="card-icon">🏦</div>
+          <div class="card-label">Каса</div>
+          <div class="card-value" id="cardKasa">—</div>
+        </div>
+      </div>
+
+      <!-- Weekly Bar Chart -->
+      <div class="section-title">📅 Тижневий графік</div>
+      <div class="chart-section">
+        <div class="chart-title">💵 Готівка за 7 днів</div>
+        <div class="bar-chart" id="weeklyChart">
+          <!-- filled by JS -->
+        </div>
+      </div>
+
+      <!-- Recent Records -->
+      <div class="section-title">📋 Останні записи</div>
+      <div class="records-list" id="recordsList">
+        <div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">Записів поки немає</div></div>
+      </div>
+    </div>
+
+    <!-- TAB 2: ВНЕСТИ -->
+    <div class="tab-pane" id="tab-add">
+      <div class="section-title">➕ Оберіть дію</div>
+      <div class="module-grid" id="moduleGrid">
+        <!-- filled by JS based on user modules -->
+      </div>
+    </div>
+
+    <!-- TAB 3: АНАЛІТИКА -->
+    <div class="tab-pane" id="tab-analytics">
+      <div class="section-title">📈 Місячна аналітика</div>
+      <div id="analyticsContent">
+        <div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">Завантаження...</div></div>
+      </div>
+    </div>
+
+    <!-- TAB 4: ПРОФІЛЬ -->
+    <div class="tab-pane" id="tab-profile">
+      <div class="profile-header">
+        <div class="profile-avatar" id="profileAvatar">
+          <span id="profileInitials">?</span>
+          <img id="profilePhoto" src="" alt="" style="display:none" onerror="this.style.display='none'"/>
+        </div>
+        <div class="profile-name" id="profileName">—</div>
+        <div class="profile-username" id="profileUsername"></div>
+        <span class="role-badge" id="profileRoleBadge"></span>
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-row">
+          <div class="profile-row-icon">👤</div>
+          <div class="profile-row-text">
+            <div class="profile-row-label">Роль</div>
+            <div class="profile-row-value" id="profileRole">—</div>
+          </div>
+        </div>
+        <div class="profile-row">
+          <div class="profile-row-icon">🆔</div>
+          <div class="profile-row-text">
+            <div class="profile-row-label">Telegram ID</div>
+            <div class="profile-row-value" id="profileId">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title mt-16">🔓 Активні модулі</div>
+      <div class="profile-section">
+        <div class="modules-list" id="modulesList"></div>
+      </div>
+
+      <div class="app-version">Cafe App v1.0.0 · Made with ☕</div>
+    </div>
   </div>
 
-  <script>
-    const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
+  <!-- BOTTOM TABS -->
+  <nav class="bottom-tabs" id="bottomTabs">
+    <div class="tab-item active" onclick="switchTab('dashboard', this)">
+      <div class="tab-icon">📊</div>
+      <div class="tab-label">Дашборд</div>
+    </div>
+    <div class="tab-item" onclick="switchTab('add', this)">
+      <div class="tab-icon">➕</div>
+      <div class="tab-label">Внести</div>
+    </div>
+    <div class="tab-item" id="analyticsTab" style="display:none" onclick="switchTab('analytics', this)">
+      <div class="tab-icon">📈</div>
+      <div class="tab-label">Аналітика</div>
+    </div>
+    <div class="tab-item" onclick="switchTab('profile', this)">
+      <div class="tab-icon">👤</div>
+      <div class="tab-label">Профіль</div>
+    </div>
+  </nav>
+</div>
 
-    const user = tg.initDataUnsafe?.user;
-    const infoEl = document.getElementById('user-info');
+<!-- ═══════════════ MODAL BACKDROP ═══════════════ -->
+<div class="modal-backdrop" id="modalBackdrop" onclick="closeModal()"></div>
 
-    if (user) {
-      infoEl.innerHTML = `👤 ${user.first_name}${user.last_name ? ' ' + user.last_name : ''}<br>@${user.username || 'username'}`;
+<!-- ═══════════════ BOTTOM SHEET ═══════════════ -->
+<div class="bottom-sheet" id="bottomSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <div class="sheet-title-icon" id="sheetIcon"></div>
+    <div class="sheet-title" id="sheetTitle">Внести дані</div>
+    <button class="sheet-close" onclick="closeModal()">✕</button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<!-- ═══════════════ TOAST CONTAINER ═══════════════ -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   INIT & GLOBALS
+═══════════════════════════════════════════════════════ */
+const API_URL = 'http://localhost:8000';
+const APP_VERSION = '1.0.0';
+
+const tg = window.Telegram?.WebApp;
+let currentUser = null;
+let refreshTimer = null;
+let isRefreshing = false;
+let currentModal = null;
+
+// Telegram setup
+if (tg) {
+  tg.ready();
+  tg.expand();
+  // Apply Telegram theme if available
+  document.documentElement.style.setProperty('--bg', tg.themeParams?.bg_color || '#0f0f1a');
+  document.documentElement.style.setProperty('--surface', tg.themeParams?.secondary_bg_color || '#1a1a2e');
+}
+
+/* ═══════════════════════════════════════════════════════
+   DATE FORMATTING
+═══════════════════════════════════════════════════════ */
+function formatDate(d = new Date()) {
+  const days = ['Неділя','Понеділок','Вівторок','Середа','Четвер','П'ятниця','Субота'];
+  const months = ['січня','лютого','березня','квітня','травня','червня','липня','серпня','вересня','жовтня','листопада','грудня'];
+  return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+function formatTime(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+}
+
+function formatMoney(val) {
+  if (val === null || val === undefined || isNaN(val)) return '—';
+  const n = parseFloat(val);
+  if (n >= 1000) return (n/1000).toFixed(1) + 'к ₴';
+  return n.toFixed(0) + ' ₴';
+}
+
+function formatShortDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const days = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб'];
+    return days[d.getDay()];
+  } catch { return ''; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   AUTH
+═══════════════════════════════════════════════════════ */
+async function init() {
+  document.getElementById('headerDate').textContent = formatDate();
+
+  // Small delay for smoothness
+  await new Promise(r => setTimeout(r, 600));
+
+  try {
+    const payload = {
+      init_data: tg?.initData || '',
+      user_id: tg?.initDataUnsafe?.user?.id || null
+    };
+
+    const res = await apiPost('/api/auth', payload);
+
+    if (res.status === 'approved') {
+      currentUser = {
+        role: res.role || 'barista',
+        modules: res.modules || {},
+        tgUser: tg?.initDataUnsafe?.user || {}
+      };
+      setupUser();
+      hideLoader();
+      showApp();
+      loadDashboard();
+      startAutoRefresh();
+    } else if (res.status === 'pending') {
+      hideLoader();
+      showScreen('pendingScreen');
     } else {
-      infoEl.textContent = '👤 Гість (відкрито поза Telegram)';
+      throw new Error(res.message || 'Невідомий статус');
     }
+  } catch (err) {
+    console.error('Auth error:', err);
+    hideLoader();
+    const msg = err.message?.includes('fetch') 
+      ? 'Сервер недоступний. Переконайтеся, що backend запущено на порту 8000.'
+      : (err.message || 'Помилка авторизації');
+    document.getElementById('errorMsg').textContent = msg;
+    showScreen('errorScreen');
+  }
+}
 
-    function handleClick() {
-      tg.showAlert('Привіт! clawd app працює! 🐾');
+function setupUser() {
+  const u = currentUser.tgUser;
+  const role = currentUser.role;
+  const roleMap = {
+    barista: { label: 'Баріста', cls: 'role-barista' },
+    chef:    { label: 'Шеф',     cls: 'role-chef' },
+    admin:   { label: 'Адмін',   cls: 'role-admin' },
+    trainee: { label: 'Стажер',  cls: 'role-trainee' },
+  };
+  const roleInfo = roleMap[role] || { label: role, cls: 'role-barista' };
+
+  // Header badge
+  const badge = document.getElementById('roleBadge');
+  badge.textContent = roleInfo.label;
+  badge.className = 'role-badge ' + roleInfo.cls;
+
+  // Profile
+  const initials = ((u.first_name || '?')[0] + (u.last_name || '')[0]).toUpperCase() || '?';
+  document.getElementById('profileInitials').textContent = initials;
+  document.getElementById('profileName').textContent = [u.first_name, u.last_name].filter(Boolean).join(' ') || 'Користувач';
+  document.getElementById('profileUsername').textContent = u.username ? '@' + u.username : '';
+  document.getElementById('profileId').textContent = u.id || '—';
+  document.getElementById('profileRole').textContent = roleInfo.label;
+
+  const profBadge = document.getElementById('profileRoleBadge');
+  profBadge.textContent = roleInfo.label;
+  profBadge.className = 'role-badge ' + roleInfo.cls;
+
+  if (u.photo_url) {
+    const img = document.getElementById('profilePhoto');
+    img.src = u.photo_url;
+    img.style.display = 'block';
+  }
+
+  // Build module pills
+  const moduleLabels = {
+    cash_income: { label: 'Готівка', icon: '💵' },
+    card_income: { label: 'Картка', icon: '💳' },
+    coffee_count:{ label: 'Кава', icon: '☕' },
+    deposits:    { label: 'Вплати', icon: '📥' },
+    withdrawals: { label: 'Виплати', icon: '📤' },
+    expenses:    { label: 'Витрати', icon: '🧾' },
+    reports:     { label: 'Звіти', icon: '📈' },
+  };
+  const ml = document.getElementById('modulesList');
+  ml.innerHTML = '';
+  Object.entries(currentUser.modules).forEach(([key, val]) => {
+    if (val && moduleLabels[key]) {
+      const info = moduleLabels[key];
+      const pill = document.createElement('div');
+      pill.className = 'module-pill';
+      pill.innerHTML = `<span>${info.icon}</span>${info.label}`;
+      ml.appendChild(pill);
     }
-  </script>
+  });
+  if (!ml.children.length) {
+    ml.innerHTML = '<div class="empty-text" style="padding:8px;color:var(--text-secondary);font-size:13px">Немає активних модулів</div>';
+  }
+
+  // Show analytics tab if has reports
+  if (currentUser.modules.reports) {
+    document.getElementById('analyticsTab').style.display = 'flex';
+  }
+
+  // Build module cards for Tab 2
+  buildModuleCards();
+}
+
+/* ═══════════════════════════════════════════════════════
+   MODULE CARDS (Tab 2)
+═══════════════════════════════════════════════════════ */
+const MODULE_DEFS = [
+  { key: 'cash_income',  icon: '💵', iconCls: 'em-cash',   name: 'Готівка',         desc: 'Внести готівкову виручку',       field: 'cash_income',       type: 'money',  label: 'Сума готівки' },
+  { key: 'card_income',  icon: '💳', iconCls: 'em-card',   name: 'Картка',           desc: 'Внести виручку по карті',        field: 'card_income',       type: 'money',  label: 'Сума по карті' },
+  { key: 'coffee_count', icon: '☕', iconCls: 'em-coffee', name: 'Порції кави',      desc: 'Кількість зварених порцій',      field: 'coffee_portions',   type: 'number', label: 'Кількість порцій' },
+  { key: 'deposits',     icon: '📥', iconCls: 'em-dep',    name: 'Вплата в касу',   desc: 'Поповнення каси',                field: 'cash_deposit',      type: 'money',  label: 'Сума вплати' },
+  { key: 'withdrawals',  icon: '📤', iconCls: 'em-with',   name: 'Виплата з каси',  desc: 'Виплата з каси',                 field: 'cash_withdrawal',   type: 'money',  label: 'Сума виплати' },
+  { key: 'expenses',     icon: '🧾', iconCls: 'em-exp',    name: 'Витрати',          desc: 'Внести витрати з коментарем',    field: 'expenses',          type: 'expense',label: 'Сума витрат' },
+];
+
+function buildModuleCards() {
+  const grid = document.getElementById('moduleGrid');
+  grid.innerHTML = '';
+  const available = MODULE_DEFS.filter(m => currentUser.modules[m.key]);
+
+  if (!available.length) {
+    grid.innerHTML = '<div class="empty-state"><div class="empty-icon">🔒</div><div class="empty-text">У вас немає активних модулів</div></div>';
+    return;
+  }
+
+  available.forEach((m, i) => {
+    const card = document.createElement('div');
+    card.className = 'module-card fade-in';
+    card.style.animationDelay = (i * 0.06) + 's';
+    card.innerHTML = `
+      <div class="module-emoji ${m.iconCls}">${m.icon}</div>
+      <div class="module-text">
+        <div class="module-name">${m.name}</div>
+        <div class="module-desc">${m.desc}</div>
+      </div>
+      <div class="module-arrow">›</div>
+    `;
+    card.addEventListener('click', () => openModal(m));
+    grid.appendChild(card);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   MODAL SHEET
+═══════════════════════════════════════════════════════ */
+function openModal(moduleDef) {
+  currentModal = moduleDef;
+
+  document.getElementById('sheetIcon').textContent = moduleDef.icon;
+  document.getElementById('sheetIcon').className = `sheet-title-icon ${moduleDef.iconCls}`;
+  document.getElementById('sheetTitle').textContent = moduleDef.name;
+
+  const body = document.getElementById('sheetBody');
+  if (moduleDef.type === 'expense') {
+    body.innerHTML = `
+      <div class="input-group">
+        <label class="input-label">Сума витрат (₴)</label>
+        <input id="modalAmount" class="input-field" type="number" inputmode="decimal" placeholder="0.00" min="0" step="0.01" autofocus />
+      </div>
+      <div class="input-group">
+        <label class="input-label">Коментар</label>
+        <textarea id="modalNotes" class="input-field" placeholder="Опис витрати..."></textarea>
+      </div>
+      <button class="save-btn" id="modalSaveBtn" onclick="saveRecord()">
+        <div class="btn-content">✅ Зберегти</div>
+      </button>
+    `;
+  } else {
+    const isInt = moduleDef.type === 'number';
+    body.innerHTML = `
+      <div class="input-group">
+        <label class="input-label">${moduleDef.label}${isInt ? '' : ' (₴)'}</label>
+        <input id="modalAmount" class="input-field" type="number" inputmode="${isInt ? 'numeric' : 'decimal'}" placeholder="${isInt ? '0' : '0.00'}" min="0" ${isInt ? 'step="1"' : 'step="0.01"'} autofocus />
+      </div>
+      <button class="save-btn" id="modalSaveBtn" onclick="saveRecord()">
+        <div class="btn-content">✅ Зберегти</div>
+      </button>
+    `;
+  }
+
+  document.getElementById('modalBackdrop').classList.add('show');
+  document.getElementById('bottomSheet').classList.add('show');
+
+  // Focus input after animation
+  setTimeout(() => document.getElementById('modalAmount')?.focus(), 350);
+
+  // Enter key to save
+  document.getElementById('modalAmount')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveRecord();
+  });
+}
+
+function closeModal() {
+  document.getElementById('modalBackdrop').classList.remove('show');
+  document.getElementById('bottomSheet').classList.remove('show');
+  currentModal = null;
+}
+
+async function saveRecord() {
+  if (!currentModal) return;
+  const amountEl = document.getElementById('modalAmount');
+  const notesEl  = document.getElementById('modalNotes');
+  const saveBtn  = document.getElementById('modalSaveBtn');
+  const amount = parseFloat(amountEl?.value);
+
+  if (!amount || amount <= 0) {
+    amountEl?.classList.add('shake');
+    amountEl?.focus();
+    setTimeout(() => amountEl?.classList.remove('shake'), 400);
+    return;
+  }
+
+  saveBtn.disabled = true;
+  saveBtn.querySelector('.btn-content').innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Збереження...';
+
+  try {
+    const payload = {
+      user_id: currentUser.tgUser?.id,
+      field: currentModal.field,
+      value: amount,
+    };
+    if (notesEl?.value) payload.notes = notesEl.value;
+
+    await apiPost('/api/record', payload);
+    closeModal();
+    showToast('✅', 'Збережено!', 'success');
+    await refreshDashboard();
+  } catch (err) {
+    showToast('❌', err.message || 'Помилка збереження', 'error');
+    saveBtn.disabled = false;
+    saveBtn.querySelector('.btn-content').innerHTML = '✅ Зберегти';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   DASHBOARD DATA LOADING
+═══════════════════════════════════════════════════════ */
+async function loadDashboard() {
+  await Promise.allSettled([
+    loadSummary(),
+    loadWeekly(),
+    loadRecords(),
+  ]);
+}
+
+async function loadSummary() {
+  try {
+    const data = await apiGet('/api/summary');
+    const cashNet = (parseFloat(data.cash_income)||0) - (parseFloat(data.expenses)||0) - (parseFloat(data.cash_withdrawal)||0);
+    const kasa    = (parseFloat(data.cash_deposit)||0) - (parseFloat(data.cash_withdrawal)||0);
+
+    animateValue('cardCash',   cashNet < 0 ? cashNet.toFixed(0) + ' ₴' : formatMoney(cashNet), cashNet < 0);
+    animateValue('cardCard',   formatMoney(data.card_income));
+    animateValue('cardCoffee', (data.coffee_portions || 0) + ' шт');
+    animateValue('cardKasa',   formatMoney(kasa), kasa < 0);
+  } catch (err) {
+    console.error('Summary error:', err);
+  }
+}
+
+function animateValue(id, val, negative = false) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.opacity = '0';
+  el.style.transform = 'translateY(4px)';
+  setTimeout(() => {
+    el.textContent = val;
+    el.style.color = negative ? 'var(--danger)' : '';
+    el.style.transition = 'opacity 0.3s, transform 0.3s';
+    el.style.opacity = '1';
+    el.style.transform = 'translateY(0)';
+  }, 100);
+}
+
+async function loadWeekly() {
+  try {
+    const data = await apiGet('/api/weekly');
+    if (!data || !data.length) return;
+    renderWeeklyChart(data);
+  } catch (err) {
+    console.error('Weekly error:', err);
+  }
+}
+
+function renderWeeklyChart(data) {
+  const chart = document.getElementById('weeklyChart');
+  chart.innerHTML = '';
+
+  const values = data.map(d => parseFloat(d.cash_income) || 0);
+  const maxVal = Math.max(...values, 1);
+  const today = new Date().getDay();
+
+  data.forEach((d, i) => {
+    const val = parseFloat(d.cash_income) || 0;
+    const heightPct = (val / maxVal) * 100;
+    const dayIndex = new Date(d.date).getDay();
+    const isToday = i === data.length - 1;
+
+    const col = document.createElement('div');
+    col.className = 'bar-col';
+    col.innerHTML = `
+      <div class="bar-wrap" style="height:80px">
+        <div class="bar${isToday ? ' today' : ''}" style="height:0" data-h="${heightPct.toFixed(1)}"></div>
+      </div>
+      <div class="bar-day">${formatShortDate(d.date)}</div>
+    `;
+    chart.appendChild(col);
+  });
+
+  // Animate bars in
+  requestAnimationFrame(() => {
+    chart.querySelectorAll('.bar').forEach(bar => {
+      const h = bar.dataset.h;
+      setTimeout(() => { bar.style.height = h + '%'; }, 100);
+    });
+  });
+}
+
+async function loadRecords() {
+  try {
+    const data = await apiGet('/api/records?limit=10');
+    renderRecords(data || []);
+  } catch (err) {
+    console.error('Records error:', err);
+  }
+}
+
+function renderRecords(records) {
+  const list = document.getElementById('recordsList');
+  list.innerHTML = '';
+
+  if (!records.length) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">Записів поки немає</div></div>';
+    return;
+  }
+
+  records.forEach((r, i) => {
+    const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.username || 'Користувач';
+    const initials = (name[0] || '?').toUpperCase();
+    const chips = [];
+    if (parseFloat(r.cash_income))    chips.push(`<span class="amount-chip chip-cash">💵 ${formatMoney(r.cash_income)}</span>`);
+    if (parseFloat(r.card_income))    chips.push(`<span class="amount-chip chip-card">💳 ${formatMoney(r.card_income)}</span>`);
+    if (parseFloat(r.coffee_portions))chips.push(`<span class="amount-chip chip-coffee">☕ ${r.coffee_portions} шт</span>`);
+    if (parseFloat(r.expenses))       chips.push(`<span class="amount-chip chip-exp">🧾 ${formatMoney(r.expenses)}</span>`);
+    if (parseFloat(r.cash_deposit))   chips.push(`<span class="amount-chip chip-dep">📥 ${formatMoney(r.cash_deposit)}</span>`);
+    if (parseFloat(r.cash_withdrawal))chips.push(`<span class="amount-chip chip-with">📤 ${formatMoney(r.cash_withdrawal)}</span>`);
+
+    const item = document.createElement('div');
+    item.className = 'record-item fade-in';
+    item.style.animationDelay = (i * 0.04) + 's';
+    item.innerHTML = `
+      <div class="record-avatar">${initials}</div>
+      <div class="record-info">
+        <div class="record-name">${escHtml(name)}</div>
+        <div class="record-time">${formatTime(r.created_at)}${r.notes ? ' · ' + escHtml(r.notes.substring(0,40)) : ''}</div>
+        <div class="record-amounts">${chips.join('') || '<span class="amount-chip" style="opacity:.5">—</span>'}</div>
+      </div>
+    `;
+    list.appendChild(item);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   ANALYTICS
+═══════════════════════════════════════════════════════ */
+async function loadAnalytics() {
+  const container = document.getElementById('analyticsContent');
+  container.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  try {
+    const data = await apiGet('/api/monthly');
+    renderAnalytics(data);
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">Не вдалося завантажити дані</div></div>';
+  }
+}
+
+function renderAnalytics(data) {
+  const container = document.getElementById('analyticsContent');
+  const income  = (parseFloat(data.cash_income)||0) + (parseFloat(data.card_income)||0);
+  const expense = parseFloat(data.expenses) || 0;
+  const total   = Math.max(income + expense, 1);
+  const incPct  = Math.round((income / total) * 100);
+  const expPct  = Math.round((expense / total) * 100);
+  const coffeeAvg = data.coffee_avg_daily ? parseFloat(data.coffee_avg_daily).toFixed(1) : '—';
+  const cashNet = (parseFloat(data.cash_income)||0) - expense - (parseFloat(data.cash_withdrawal)||0);
+
+  container.innerHTML = `
+    <div class="analytics-section fade-in">
+      <div class="analytics-header">📊 Місяць — підсумок</div>
+      <div class="stat-row">
+        <span class="stat-label">💵 Готівка</span>
+        <span class="stat-value positive">${formatMoney(data.cash_income)}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">💳 Картка</span>
+        <span class="stat-value positive">${formatMoney(data.card_income)}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">🧾 Витрати</span>
+        <span class="stat-value negative">${formatMoney(expense)}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">📥 Вплати</span>
+        <span class="stat-value">${formatMoney(data.cash_deposit)}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">📤 Виплати</span>
+        <span class="stat-value">${formatMoney(data.cash_withdrawal)}</span>
+      </div>
+      <div class="stat-row" style="border-top: 1px solid var(--border); margin-top: 4px; padding-top: 12px;">
+        <span class="stat-label" style="font-weight:600;color:var(--text)">💰 Нетто</span>
+        <span class="stat-value ${cashNet >= 0 ? 'positive' : 'negative'}" style="font-size:16px">${formatMoney(cashNet)}</span>
+      </div>
+    </div>
+
+    <div class="analytics-section fade-in" style="animation-delay:.1s">
+      <div class="analytics-header">📈 Доходи vs Витрати</div>
+      <div class="progress-section">
+        <div class="progress-item">
+          <div class="progress-header">
+            <span class="progress-label">💰 Доходи</span>
+            <span class="progress-val positive">${formatMoney(income)} (${incPct}%)</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill fill-income" style="width:0" data-w="${incPct}%"></div>
+          </div>
+        </div>
+        <div class="progress-item">
+          <div class="progress-header">
+            <span class="progress-label">🧾 Витрати</span>
+            <span class="progress-val negative">${formatMoney(expense)} (${expPct}%)</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill fill-expense" style="width:0" data-w="${expPct}%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="analytics-section fade-in" style="animation-delay:.2s">
+      <div class="analytics-header">☕ Кава</div>
+      <div class="stat-row">
+        <span class="stat-label">Всього порцій</span>
+        <span class="stat-value">${(parseFloat(data.coffee_portions)||0).toFixed(0)} шт</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Середньо на день</span>
+        <span class="stat-value">${coffeeAvg} шт/день</span>
+      </div>
+    </div>
+  `;
+
+  // Animate progress bars
+  requestAnimationFrame(() => {
+    container.querySelectorAll('.progress-bar-fill').forEach(bar => {
+      const w = bar.dataset.w;
+      setTimeout(() => { bar.style.width = w; }, 200);
+    });
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   API HELPERS
+═══════════════════════════════════════════════════════ */
+async function apiGet(path) {
+  const res = await fetch(API_URL + path, {
+    headers: {
+      'X-Telegram-Init-Data': tg?.initData || '',
+      'X-User-Id': String(currentUser?.tgUser?.id || ''),
+    }
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function apiPost(path, body) {
+  const res = await fetch(API_URL + path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Telegram-Init-Data': tg?.initData || '',
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || errData.message || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+/* ═══════════════════════════════════════════════════════
+   REFRESH
+═══════════════════════════════════════════════════════ */
+async function refreshDashboard() {
+  if (isRefreshing) return;
+  isRefreshing = true;
+  document.getElementById('refreshIndicator').classList.add('show');
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  await loadDashboard();
+  isRefreshing = false;
+  document.getElementById('refreshIndicator').classList.remove('show');
+  btn.classList.remove('spinning');
+}
+
+async function refreshAll() {
+  await refreshDashboard();
+}
+
+function startAutoRefresh() {
+  refreshTimer = setInterval(() => {
+    const currentTab = document.querySelector('.tab-pane.active');
+    if (currentTab?.id === 'tab-dashboard') {
+      loadDashboard();
+    }
+  }, 30000);
+}
+
+/* ═══════════════════════════════════════════════════════
+   TAB SWITCHING
+═══════════════════════════════════════════════════════ */
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+
+  // Lazy-load analytics
+  if (name === 'analytics') loadAnalytics();
+
+  // Scroll to top
+  document.querySelector('.content-area').scrollTop = 0;
+}
+
+/* ═══════════════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════════════ */
+function showToast(icon, text, type = 'default') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-text">${escHtml(text)}</span>`;
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add('show');
+    setTimeout(() => {
+      toast.classList.add('hide');
+      setTimeout(() => toast.remove(), 400);
+    }, 2500);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   UI HELPERS
+═══════════════════════════════════════════════════════ */
+function hideLoader() {
+  const loader = document.getElementById('loader');
+  loader.classList.add('hide');
+  setTimeout(() => loader.style.display = 'none', 450);
+}
+
+function showApp() {
+  document.getElementById('app').classList.add('active');
+}
+
+function showScreen(id) {
+  document.getElementById(id).classList.add('active');
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Swipe-to-close modal
+let touchStartY = 0;
+document.getElementById('bottomSheet').addEventListener('touchstart', e => {
+  touchStartY = e.touches[0].clientY;
+}, { passive: true });
+document.getElementById('bottomSheet').addEventListener('touchmove', e => {
+  const dy = e.touches[0].clientY - touchStartY;
+  if (dy > 60) closeModal();
+}, { passive: true });
+
+// Shake animation for invalid input
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes shake {
+    0%,100%{transform:translateX(0)}
+    20%{transform:translateX(-6px)}
+    40%{transform:translateX(6px)}
+    60%{transform:translateX(-4px)}
+    80%{transform:translateX(4px)}
+  }
+  .shake { animation: shake 0.4s ease; border-color: var(--danger) !important; }
+`;
+document.head.appendChild(style);
+
+/* ═══════════════════════════════════════════════════════
+   KICKOFF
+═══════════════════════════════════════════════════════ */
+init();
+</script>
 </body>
 </html>
