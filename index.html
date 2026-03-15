@@ -198,6 +198,12 @@
         <button class="period-btn" data-period="month" onclick="selectPeriod(this)">Місяць</button>
       </div>
 
+      <!-- Export buttons (admin only) -->
+      <div id="exportBtns" style="display:none; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+        <button onclick="exportData('csv')" style="flex:1; padding:9px; background:var(--bg2); border:1px solid var(--border); border-radius:10px; color:var(--text); font-size:0.82rem; cursor:pointer;">⬇️ CSV</button>
+        <button onclick="exportData('html')" style="flex:1; padding:9px; background:var(--bg2); border:1px solid var(--border); border-radius:10px; color:var(--text); font-size:0.82rem; cursor:pointer;">🖨️ HTML / PDF</button>
+      </div>
+
       <!-- Dynamic dashboard content -->
       <div id="dashContent">
         <div class="dash-loading"><div class="spinner" style="margin:0 auto 8px"></div>Завантаження...</div>
@@ -522,9 +528,11 @@ async function init() {
       document.getElementById('hRole').textContent = roleLabel;
       buildProfile(user, data.role, data.modules || {});
 
-      // Show period toggle for admins
+      // Show period toggle + export for admins
       if (isAdminUser()) {
         document.getElementById('periodTabs').style.display = 'flex';
+        const expBtns = document.getElementById('exportBtns');
+        if (expBtns) expBtns.style.display = 'flex';
       }
 
       show('appScreen');
@@ -548,6 +556,18 @@ async function init() {
 }
 
 init();
+
+    function exportData(fmt) {
+      if (!currentUser) return;
+      const period = currentPeriod || 'day';
+      const today = new Date().toISOString().slice(0, 10);
+      const url = `/api/export?user_id=${currentUser.id}&period=${period}&date=${today}&format=${fmt}`;
+      if (fmt === 'csv') {
+        window.location.href = url;
+      } else {
+        window.open(url, '_blank');
+      }
+    }
 </script>
 </body>
 </html>
