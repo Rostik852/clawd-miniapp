@@ -145,13 +145,33 @@ def get_summary_day(conn, date_str):
         return dict(cur.fetchone())
 
 
+DEFAULT_MODULES = {
+    'cash_income':  True,
+    'card_income':  True,
+    'coffee_count': True,
+    'deposits':     True,
+    'withdrawals':  True,
+    'expenses':     True,
+    'reports':      False,  # звіт/статистика — тільки якщо адмін дозволить
+}
+
 def set_role(conn, user_id, role):
-    """Set role and approve the user."""
+    """Set role, approve the user and apply default module permissions."""
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE users SET role = %s, is_approved = 1 WHERE id = %s",
             (role, user_id)
         )
+        # Встановлюємо дефолтні модулі тільки якщо ще немає записів
+        cur.execute("SELECT COUNT(*) FROM module_access WHERE user_id = %s", (user_id,))
+        count = cur.fetchone()[0]
+        if count == 0:
+            for module, enabled in DEFAULT_MODULES.items():
+                cur.execute("""
+                    INSERT INTO module_access (user_id, module, enabled)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, module) DO NOTHING
+                """, (user_id, module, 1 if enabled else 0))
     conn.commit()
 
 
