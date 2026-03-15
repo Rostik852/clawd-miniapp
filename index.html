@@ -171,6 +171,54 @@
       color: var(--btn);
       font-weight: 600;
     }
+
+    /* ── ENTER TAB ───────────────────────────────────────────── */
+    .section-card { background: var(--bg2); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+    .section-card-title { font-size: 1rem; font-weight: 700; margin-bottom: 12px; }
+
+    .mode-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
+    .mode-btn { flex: 1; padding: 10px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; background: var(--bg); color: var(--hint); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .mode-btn.active { background: rgba(58,134,255,0.15); border-color: var(--btn); color: var(--btn); }
+
+    .type-selector { display: flex; gap: 8px; margin-bottom: 14px; }
+    .type-btn { flex: 1; padding: 12px 6px; border-radius: 12px; border: 1.5px solid rgba(255,255,255,0.1); background: var(--bg); color: var(--hint); font-size: 0.8rem; font-weight: 600; cursor: pointer; text-align: center; transition: all 0.2s; }
+    .type-btn.active { border-color: var(--btn); color: var(--btn); background: rgba(58,134,255,0.1); }
+
+    /* DENOMINATION CALCULATOR */
+    .denom-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+    .denom-btn { padding: 12px 0; border-radius: 10px; border: 1.5px solid rgba(255,255,255,0.1); background: var(--bg); color: var(--text); font-size: 0.88rem; font-weight: 700; cursor: pointer; text-align: center; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; transition: all 0.15s; user-select: none; -webkit-user-select: none; }
+    .denom-btn.has-count { border-color: var(--btn); background: rgba(58,134,255,0.12); color: var(--btn); }
+    .denom-count { font-size: 0.65rem; font-weight: 400; color: var(--hint); }
+    .denom-btn.has-count .denom-count { color: var(--btn); }
+    .denom-total { font-size: 1.2rem; font-weight: 700; color: var(--green); text-align: center; margin-bottom: 10px; }
+    .denom-breakdown { margin-bottom: 12px; }
+    .denom-row { display: flex; justify-content: space-between; font-size: 0.82rem; padding: 3px 0; color: var(--hint); }
+    .denom-row span:last-child { color: var(--text); font-weight: 600; }
+
+    /* NUM INPUT */
+    .num-input { width: 100%; background: var(--bg); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px 16px; color: var(--text); font-size: 1.1rem; outline: none; margin-bottom: 12px; -webkit-appearance: none; }
+    .num-input:focus { border-color: var(--btn); }
+
+    /* ACTION BUTTONS */
+    .action-btn { width: 100%; padding: 14px; border-radius: 12px; border: none; font-size: 0.95rem; font-weight: 700; cursor: pointer; margin-bottom: 8px; transition: opacity 0.15s; }
+    .action-btn:active { opacity: 0.8; }
+    .btn-primary { background: var(--btn); color: var(--btn-text); }
+    .btn-secondary { background: rgba(255,255,255,0.07); color: var(--hint); }
+    .btn-success { background: var(--green); color: #fff; }
+
+    /* WIZARD */
+    .wizard-steps { display: flex; gap: 6px; margin-bottom: 14px; }
+    .wizard-step-dot { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.1); transition: background 0.3s; }
+    .wizard-step-dot.active { background: var(--btn); }
+    .wizard-step-dot.done { background: var(--green); }
+    .wizard-step-label { font-size: 0.75rem; color: var(--hint); margin-bottom: 6px; }
+    .wizard-step-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 14px; }
+
+    /* CONFIRM SUMMARY */
+    .confirm-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.9rem; }
+    .confirm-row:last-child { border-bottom: none; }
+    .confirm-label { color: var(--hint); }
+    .confirm-val { font-weight: 700; }
   </style>
 </head>
 <body>
@@ -222,6 +270,57 @@
         <div class="dash-loading"><div class="spinner" style="margin:0 auto 8px"></div>Завантаження...</div>
       </div>
 
+    </div>
+
+    <!-- Enter data -->
+    <div class="tab-pane" id="tab-enter">
+      <!-- Status banner (loaded from summary) -->
+      <div id="enterStatusBanner" class="status-banner banner-open" style="margin-bottom:14px">🔴 День ще не закрито</div>
+
+      <!-- Section A: Snapshot -->
+      <div class="section-card">
+        <div class="section-card-title">📸 Поточний зріз</div>
+
+        <!-- Snapshot type selector -->
+        <div class="type-selector" id="snapTypeSelector">
+          <button class="type-btn active" onclick="selectSnapType('portions', this)" id="snapTypePortions">☕ Тільки порції</button>
+          <button class="type-btn" onclick="selectSnapType('cashAndPortions', this)" id="snapTypeCash">💰 Каса + порції</button>
+        </div>
+
+        <!-- Coffee portions input (always shown) -->
+        <div id="snapPortionsBlock">
+          <div style="font-size:0.8rem;color:var(--hint);margin-bottom:6px">☕ Кількість порцій</div>
+          <input type="number" class="num-input" id="snapPortions" placeholder="0" min="0" inputmode="numeric">
+        </div>
+
+        <!-- Cash input block (only for cash+portions) -->
+        <div id="snapCashBlock" style="display:none">
+          <div style="font-size:0.8rem;color:var(--hint);margin-bottom:6px">💵 Готівка в касі</div>
+          <div class="mode-toggle">
+            <button class="mode-btn active" onclick="setSnapCashMode('sum', this)" id="snapModeSum">💵 Сума</button>
+            <button class="mode-btn" onclick="setSnapCashMode('bills', this)" id="snapModeBills">🪙 Купюри</button>
+          </div>
+          <!-- Sum input -->
+          <div id="snapSumInput">
+            <input type="number" class="num-input" id="snapCashAmount" placeholder="0.00" min="0" step="0.01" inputmode="decimal">
+          </div>
+          <!-- Bills input -->
+          <div id="snapBillsInput" style="display:none">
+            <div id="snapDenomGrid" class="denom-grid"></div>
+            <div class="denom-total" id="snapDenomTotal">Разом: 0 zł</div>
+            <div class="denom-breakdown" id="snapDenomBreakdown"></div>
+            <button class="action-btn btn-secondary" style="margin-bottom:14px;font-size:0.82rem;padding:9px" onclick="resetDenom('snap')">🗑 Скинути</button>
+          </div>
+        </div>
+
+        <button class="action-btn btn-primary" onclick="saveSnapshot()">📸 Зберегти зріз</button>
+      </div>
+
+      <!-- Section B: Close day -->
+      <div class="section-card" id="closeDaySection">
+        <div class="section-card-title">🔒 Закрити день</div>
+        <div id="closeDayBody"></div>
+      </div>
     </div>
 
     <!-- Export (admin only) -->
@@ -281,6 +380,7 @@
 
   <div class="bottom-tabs">
     <button class="tab-btn active" onclick="switchTab('dash',this)"><span>📊</span>Дашборд</button>
+    <button class="tab-btn" id="enterTabBtn" onclick="switchTab('enter',this)"><span>➕</span>Внести</button>
     <button class="tab-btn" id="exportTabBtn" onclick="switchTab('export',this)" style="display:none"><span>📥</span>Витяг</button>
     <button class="tab-btn" onclick="switchTab('profile',this)"><span>👤</span>Профіль</button>
   </div>
@@ -342,6 +442,11 @@ function switchTab(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   btn.classList.add('active');
+  if (name === 'enter') {
+    loadEnterStatus();
+    initDenomGrid('snap');
+    updateDenomUI('snap');
+  }
 }
 
 function showToast(msg) {
@@ -645,7 +750,6 @@ init();
       const url = `/api/export?user_id=${currentUser.id}&period=${exportPeriod}&date=${dateVal}&format=${exportFmt}`;
 
       if (exportFmt === 'csv') {
-        // Trigger download
         const a = document.createElement('a');
         a.href = url;
         a.download = `cafe_report_${exportPeriod}_${dateVal}.csv`;
@@ -661,6 +765,362 @@ init();
       btn.disabled = false;
       btn.textContent = '📊 Сформувати та завантажити';
     }
+
+    // ── ENTER TAB ────────────────────────────────────────────────────────────────
+
+    const DENOMINATIONS = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+
+    // State for two independent denom calculators: 'snap' and 'close'
+    const denomState = {
+      snap: {},
+      close: {}
+    };
+
+    function initDenomGrid(prefix) {
+      const grid = document.getElementById(prefix + 'DenomGrid');
+      if (!grid) return;
+      grid.innerHTML = '';
+      DENOMINATIONS.forEach(d => {
+        const btn = document.createElement('button');
+        btn.className = 'denom-btn';
+        btn.id = `${prefix}Denom${d}`;
+        btn.onclick = () => incrementDenom(prefix, d);
+        btn.innerHTML = `<span>${d} zł</span><span class="denom-count" id="${prefix}Count${d}">× 0</span>`;
+        grid.appendChild(btn);
+      });
+    }
+
+    function incrementDenom(prefix, denom) {
+      if (!denomState[prefix]) denomState[prefix] = {};
+      denomState[prefix][denom] = (denomState[prefix][denom] || 0) + 1;
+      updateDenomUI(prefix);
+    }
+
+    function resetDenom(prefix) {
+      denomState[prefix] = {};
+      updateDenomUI(prefix);
+    }
+
+    function getDenomTotal(prefix) {
+      const state = denomState[prefix] || {};
+      return DENOMINATIONS.reduce((sum, d) => sum + d * (state[d] || 0), 0);
+    }
+
+    function updateDenomUI(prefix) {
+      const state = denomState[prefix] || {};
+      let total = 0;
+      const breakdownLines = [];
+
+      DENOMINATIONS.forEach(d => {
+        const cnt = state[d] || 0;
+        const btn = document.getElementById(`${prefix}Denom${d}`);
+        const countEl = document.getElementById(`${prefix}Count${d}`);
+        if (btn) btn.className = 'denom-btn' + (cnt > 0 ? ' has-count' : '');
+        if (countEl) countEl.textContent = `× ${cnt}`;
+        if (cnt > 0) {
+          total += d * cnt;
+          breakdownLines.push(`${d} × ${cnt} = ${d * cnt} zł`);
+        }
+      });
+
+      const totalEl = document.getElementById(prefix + 'DenomTotal');
+      if (totalEl) totalEl.textContent = `Разом: ${total} zł`;
+
+      const bdEl = document.getElementById(prefix + 'DenomBreakdown');
+      if (bdEl) {
+        bdEl.innerHTML = breakdownLines.map(l =>
+          `<div class="denom-row"><span>${l.split('=')[0].trim()}</span><span>${l.split('=')[1].trim()}</span></div>`
+        ).join('');
+      }
+    }
+
+    // Snapshot section
+    let snapType = 'portions'; // 'portions' | 'cashAndPortions'
+    let snapCashMode = 'sum'; // 'sum' | 'bills'
+
+    function selectSnapType(type, btn) {
+      snapType = type;
+      document.querySelectorAll('#snapTypeSelector .type-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('snapCashBlock').style.display = type === 'cashAndPortions' ? 'block' : 'none';
+    }
+
+    function setSnapCashMode(mode, btn) {
+      snapCashMode = mode;
+      document.querySelectorAll('#snapCashBlock .mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('snapSumInput').style.display = mode === 'sum' ? 'block' : 'none';
+      document.getElementById('snapBillsInput').style.display = mode === 'bills' ? 'block' : 'none';
+    }
+
+    async function saveSnapshot() {
+      if (!currentUser) return;
+      const portions = parseInt(document.getElementById('snapPortions').value) || null;
+
+      let cashAmount = null;
+      if (snapType === 'cashAndPortions') {
+        if (snapCashMode === 'sum') {
+          cashAmount = parseFloat(document.getElementById('snapCashAmount').value) || null;
+        } else {
+          cashAmount = getDenomTotal('snap') || null;
+        }
+      }
+
+      if (portions === null && cashAmount === null) {
+        showToast('⚠️ Введіть хоча б одне значення');
+        return;
+      }
+
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const timeStr = now.toTimeString().slice(0, 5);
+
+      try {
+        const resp = await fetch(`${API}/api/snapshot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: currentUser.id,
+            init_data: tg?.initData || '',
+            cash_amount: cashAmount,
+            coffee_portions: portions,
+            date: dateStr,
+            time: timeStr
+          })
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          showToast('✅ Збережено!');
+          document.getElementById('snapPortions').value = '';
+          document.getElementById('snapCashAmount').value = '';
+          resetDenom('snap');
+          loadDashboard('day');
+          loadEnterStatus();
+        } else {
+          showToast('⚠️ Помилка: ' + (data.error || 'невідома'));
+        }
+      } catch(e) {
+        showToast('⚠️ Помилка з\'єднання');
+      }
+    }
+
+    // ── CLOSE DAY WIZARD ──────────────────────────────────────────────────────
+
+    let closeDayStep = 1;      // 1..4
+    let closeDayCashMode = 'sum';
+    const closeDayData = { closing_cash: null, coffee_portions: null, card_income: null };
+
+    function renderCloseDay(summaryData) {
+      const body = document.getElementById('closeDayBody');
+      if (!body) return;
+
+      // If already finalized, show summary + edit option
+      if (summaryData && summaryData.is_finalized) {
+        const ct = summaryData.closed_at ? summaryData.closed_at.slice(11,16) : '';
+        body.innerHTML = `
+          <div style="text-align:center;padding:8px 0 16px">
+            <div style="font-size:2rem;margin-bottom:6px">✅</div>
+            <div style="font-weight:700;margin-bottom:4px">День закрито о ${ct}</div>
+            <div style="font-size:0.82rem;color:var(--hint);margin-bottom:12px">Готівка: ${fmt(summaryData.closing_cash)} · Порції: ${summaryData.coffee_portions} шт · Картка: ${fmt(summaryData.card_income)}</div>
+            <button class="action-btn btn-secondary" style="font-size:0.85rem;padding:10px" onclick="startCloseDay(null, true)">✏️ Редагувати</button>
+          </div>`;
+        return;
+      }
+
+      renderCloseDayStep(body);
+    }
+
+    function startCloseDay(summaryData, force) {
+      closeDayStep = 1;
+      closeDayData.closing_cash = null;
+      closeDayData.coffee_portions = null;
+      closeDayData.card_income = null;
+      resetDenom('close');
+      const body = document.getElementById('closeDayBody');
+      renderCloseDayStep(body);
+    }
+
+    function renderCloseDayStep(body) {
+      const steps = ['Готівка в касі', 'Порції кави', 'Дохід картка', 'Підтвердження'];
+      const stepDots = steps.map((_, i) => {
+        let cls = 'wizard-step-dot';
+        if (i + 1 < closeDayStep) cls += ' done';
+        else if (i + 1 === closeDayStep) cls += ' active';
+        return `<div class="${cls}"></div>`;
+      }).join('');
+
+      let content = '';
+
+      if (closeDayStep === 1) {
+        content = `
+          <div style="font-size:0.8rem;color:var(--hint);margin-bottom:6px">💵 Готівка в касі на кінець дня</div>
+          <div class="mode-toggle">
+            <button class="mode-btn ${closeDayCashMode==='sum'?'active':''}" onclick="setCloseCashMode('sum',this)" id="closeModeSum">💵 Сума</button>
+            <button class="mode-btn ${closeDayCashMode==='bills'?'active':''}" onclick="setCloseCashMode('bills',this)" id="closeModeBills">🪙 Купюри</button>
+          </div>
+          <div id="closeSumInput" style="display:${closeDayCashMode==='sum'?'block':'none'}">
+            <input type="number" class="num-input" id="closeCashAmount" placeholder="0.00" min="0" step="0.01" inputmode="decimal" value="${closeDayData.closing_cash??''}">
+          </div>
+          <div id="closeBillsInput" style="display:${closeDayCashMode==='bills'?'block':'none'}">
+            <div id="closeDenomGrid" class="denom-grid"></div>
+            <div class="denom-total" id="closeDenomTotal">Разом: 0 zł</div>
+            <div class="denom-breakdown" id="closeDenomBreakdown"></div>
+            <button class="action-btn btn-secondary" style="margin-bottom:14px;font-size:0.82rem;padding:9px" onclick="resetDenom('close')">🗑 Скинути</button>
+          </div>
+          <button class="action-btn btn-primary" onclick="closeDayNext1()">Далі →</button>
+        `;
+      } else if (closeDayStep === 2) {
+        content = `
+          <div style="font-size:0.8rem;color:var(--hint);margin-bottom:6px">☕ Кількість порцій кави (необов'язково)</div>
+          <input type="number" class="num-input" id="closePortions" placeholder="0" min="0" inputmode="numeric" value="${closeDayData.coffee_portions??''}">
+          <button class="action-btn btn-primary" onclick="closeDayNext2()">Далі →</button>
+          <button class="action-btn btn-secondary" onclick="closeDaySkip2()">Пропустити</button>
+        `;
+      } else if (closeDayStep === 3) {
+        content = `
+          <div style="font-size:0.8rem;color:var(--hint);margin-bottom:6px">💳 Дохід карткою (необов'язково)</div>
+          <input type="number" class="num-input" id="closeCard" placeholder="0.00" min="0" step="0.01" inputmode="decimal" value="${closeDayData.card_income??''}">
+          <button class="action-btn btn-primary" onclick="closeDayNext3()">Далі →</button>
+          <button class="action-btn btn-secondary" onclick="closeDaySkip3()">Пропустити</button>
+        `;
+      } else if (closeDayStep === 4) {
+        const dateStr = today();
+        const closing = closeDayData.closing_cash ?? 0;
+        // We don't have opening here, will be computed server-side
+        const portions = closeDayData.coffee_portions;
+        const card = closeDayData.card_income;
+        content = `
+          <div style="margin-bottom:14px">
+            <div style="font-size:0.82rem;color:var(--hint);margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Закриття дня ${dateStr}</div>
+            <div class="confirm-row"><span class="confirm-label">🏦 Готівка в касі</span><span class="confirm-val">${fmt(closing)}</span></div>
+            <div class="confirm-row"><span class="confirm-label">☕ Порції кави</span><span class="confirm-val">${portions !== null ? portions + ' шт' : '—'}</span></div>
+            <div class="confirm-row"><span class="confirm-label">💳 Картка</span><span class="confirm-val">${card !== null ? fmt(card) : '—'}</span></div>
+          </div>
+          <button class="action-btn btn-success" onclick="confirmCloseDay()">✅ Підтвердити</button>
+          <button class="action-btn btn-secondary" onclick="startCloseDay(null,true)">✏️ Змінити</button>
+        `;
+      }
+
+      body.innerHTML = `
+        <div class="wizard-steps">${stepDots}</div>
+        <div class="wizard-step-label">Крок ${closeDayStep} з ${steps.length}: ${steps[closeDayStep-1]}</div>
+        ${content}
+      `;
+
+      // Re-init denom grid if on step 1 and bills mode
+      if (closeDayStep === 1) {
+        initDenomGrid('close');
+        updateDenomUI('close');
+        // Add event listener for mode toggle buttons
+        const modeSum = document.getElementById('closeModeSum');
+        const modeBills = document.getElementById('closeModeBills');
+        if (modeSum) modeSum.onclick = () => setCloseCashMode('sum', modeSum);
+        if (modeBills) modeBills.onclick = () => setCloseCashMode('bills', modeBills);
+      }
+    }
+
+    function setCloseCashMode(mode, btn) {
+      closeDayCashMode = mode;
+      document.getElementById('closeSumInput').style.display = mode === 'sum' ? 'block' : 'none';
+      document.getElementById('closeBillsInput').style.display = mode === 'bills' ? 'block' : 'none';
+      document.querySelectorAll('#closeDayBody .mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    function closeDayNext1() {
+      let cash;
+      if (closeDayCashMode === 'sum') {
+        cash = parseFloat(document.getElementById('closeCashAmount').value);
+      } else {
+        cash = getDenomTotal('close');
+      }
+      if (!cash && cash !== 0) { showToast('⚠️ Введіть суму готівки'); return; }
+      closeDayData.closing_cash = cash;
+      closeDayStep = 2;
+      renderCloseDayStep(document.getElementById('closeDayBody'));
+    }
+
+    function closeDayNext2() {
+      closeDayData.coffee_portions = parseInt(document.getElementById('closePortions').value) || 0;
+      closeDayStep = 3;
+      renderCloseDayStep(document.getElementById('closeDayBody'));
+    }
+
+    function closeDaySkip2() {
+      closeDayData.coffee_portions = null;
+      closeDayStep = 3;
+      renderCloseDayStep(document.getElementById('closeDayBody'));
+    }
+
+    function closeDayNext3() {
+      closeDayData.card_income = parseFloat(document.getElementById('closeCard').value) || 0;
+      closeDayStep = 4;
+      renderCloseDayStep(document.getElementById('closeDayBody'));
+    }
+
+    function closeDaySkip3() {
+      closeDayData.card_income = null;
+      closeDayStep = 4;
+      renderCloseDayStep(document.getElementById('closeDayBody'));
+    }
+
+    async function confirmCloseDay() {
+      if (!currentUser) return;
+      const dateStr = today();
+      try {
+        const resp = await fetch(`${API}/api/close_day`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: currentUser.id,
+            init_data: tg?.initData || '',
+            closing_cash: closeDayData.closing_cash,
+            coffee_portions: closeDayData.coffee_portions,
+            card_income: closeDayData.card_income,
+            date: dateStr
+          })
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          showToast('✅ День закрито!');
+          loadDashboard('day');
+          loadEnterStatus();
+        } else {
+          showToast('⚠️ ' + (data.error || 'Помилка'));
+        }
+      } catch(e) {
+        showToast('⚠️ Помилка з\'єднання');
+      }
+    }
+
+    // Load status for Enter tab
+    async function loadEnterStatus() {
+      if (!currentUser) return;
+      try {
+        const data = await fetch(`${API}/api/summary?user_id=${currentUser.id}`).then(r => r.json());
+        const banner = document.getElementById('enterStatusBanner');
+        if (banner) {
+          const ct = data.closed_at ? data.closed_at.slice(11, 16) : '';
+          if (data.is_finalized) {
+            banner.className = 'status-banner banner-closed';
+            banner.textContent = '✅ Закрито' + (ct ? ' о ' + ct : '');
+          } else {
+            banner.className = 'status-banner banner-open';
+            banner.textContent = '🔴 День ще не закрито';
+          }
+        }
+        // Render close day wizard or finalized state
+        renderCloseDay(data);
+      } catch(e) {
+        console.error('loadEnterStatus:', e);
+      }
+    }
+
+    // Initialize close day body placeholder on app load
+    document.addEventListener('DOMContentLoaded', () => {
+      const body = document.getElementById('closeDayBody');
+      if (body) body.innerHTML = '<div class="empty-msg">Перейдіть на вкладку Внести для завантаження</div>';
+    });
 </script>
 </body>
 </html>
