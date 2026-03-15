@@ -958,22 +958,33 @@ function formatShortDate(iso) {
 async function init() {
   document.getElementById('headerDate').textContent = formatDate();
 
-  // Small delay for smoothness
-  await new Promise(r => setTimeout(r, 600));
+  const user = tg?.initDataUnsafe?.user;
+  const userId = user?.id || null;
+
+  // Якщо немає user_id — показуємо помилку одразу
+  if (!userId) {
+    hideLoader();
+    document.getElementById('errorMsg').textContent = '⚠️ Відкрий через @cafe_app_bot в Telegram';
+    showScreen('errorScreen');
+    return;
+  }
 
   try {
-    const payload = {
-      init_data: tg?.initData || '',
-      user_id: tg?.initDataUnsafe?.user?.id || null
-    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
 
-    const res = await apiPost('/api/auth', payload);
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ init_data: tg?.initData || '', user_id: userId }),
+      signal: controller.signal,
+    }).then(r => r.json()).finally(() => clearTimeout(timeout));
 
     if (res.status === 'approved') {
       currentUser = {
         role: res.role || 'barista',
         modules: res.modules || {},
-        tgUser: tg?.initDataUnsafe?.user || {}
+        tgUser: user || {}
       };
       setupUser();
       hideLoader();
@@ -984,13 +995,13 @@ async function init() {
       hideLoader();
       showScreen('pendingScreen');
     } else {
-      throw new Error(res.message || 'Невідомий статус');
+      throw new Error(res.message || 'Доступ заборонено');
     }
   } catch (err) {
     console.error('Auth error:', err);
     hideLoader();
-    const msg = err.message?.includes('fetch') 
-      ? 'Сервер недоступний. Переконайтеся, що backend запущено на порту 8000.'
+    const msg = err.name === 'AbortError'
+      ? '⏱ Сервер не відповідає. Спробуй ще раз.'
       : (err.message || 'Помилка авторизації');
     document.getElementById('errorMsg').textContent = msg;
     showScreen('errorScreen');
