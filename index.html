@@ -1578,7 +1578,28 @@ document.head.appendChild(style);
 /* ═══════════════════════════════════════════════════════
    KICKOFF
 ═══════════════════════════════════════════════════════ */
-init();
+
+// Watchdog: якщо через 12 секунд loader ще видимий — показуємо помилку
+setTimeout(() => {
+  const loader = document.getElementById('loader');
+  if (loader && loader.style.display !== 'none' && !loader.classList.contains('hide')) {
+    loader.style.display = 'none';
+    const errMsg = document.getElementById('errorMsg');
+    if (errMsg) errMsg.textContent = '⏱ Не вдалось завантажити. Спробуй ще раз.';
+    const errScreen = document.getElementById('errorScreen');
+    if (errScreen) errScreen.classList.add('active');
+  }
+}, 12000);
+
+init().catch(err => {
+  console.error('Fatal init error:', err);
+  const loader = document.getElementById('loader');
+  if (loader) loader.style.display = 'none';
+  const errMsg = document.getElementById('errorMsg');
+  if (errMsg) errMsg.textContent = '❌ ' + (err.message || 'Невідома помилка');
+  const errScreen = document.getElementById('errorScreen');
+  if (errScreen) errScreen.classList.add('active');
+});
 </script>
 </body>
 </html>
