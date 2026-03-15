@@ -385,6 +385,112 @@ def get_daily_summary(conn, date_str):
     }
 
 
+def is_admin(conn, user_id):
+    """Returns True if user is super-admin (199897236) or has role='admin'."""
+    if int(user_id) == ADMIN_ID:
+        return True
+    user = get_user(conn, user_id)
+    return user is not None and user.get('role') == 'admin'
+
+
+def get_period_summary(conn, period: str, ref_date: str) -> dict:
+    """
+    period: 'day' | 'week' | 'month'
+    ref_date: 'YYYY-MM-DD'
+
+    Returns aggregated data from daily_session for the period.
+    For 'day': single day data with snapshots
+    For 'week': last 7 days, list of daily rows + totals
+    For 'month': current month days + totals
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    ref = _dt.strptime(ref_date, '%Y-%m-%d').date()
+
+    if period == 'day':
+        session = get_session(conn, ref_date)
+        if not session:
+            return {'period': 'day', 'date': ref_date, 'rows': [], 'totals': {}}
+        cash_income = max(0, (session.get('closing_cash') or 0) - (session.get('opening_cash') or 0))
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COALESCE(SUM(cash_deposit),0), COALESCE(SUM(cash_withdrawal),0), COALESCE(SUM(expenses),0)
+                FROM records WHERE date = %s
+            """, (ref_date,))
+            dep, wit, exp = cur.fetchone()
+        row = {
+            'date': ref_date,
+            'cash_income': cash_income,
+            'card_income': session.get('card_income') or 0,
+            'coffee_portions': session.get('coffee_portions') or 0,
+            'opening_cash': session.get('opening_cash') or 0,
+            'closing_cash': session.get('closing_cash'),
+            'is_finalized': bool(session.get('is_finalized')),
+            'admin_deposits': float(dep),
+            'admin_withdrawals': float(wit),
+            'expenses': float(exp),
+            'closed_at': session.get('closed_at'),
+        }
+        snaps = get_snapshots(conn, ref_date)
+        row['snapshots'] = [dict(s) for s in snaps]
+        totals = _calc_totals([row])
+        return {'period': 'day', 'date': ref_date, 'rows': [row], 'totals': totals}
+
+    elif period == 'week':
+        dates = [str(ref - _td(days=i)) for i in range(6, -1, -1)]
+        return _get_rows_for_dates(conn, dates, 'week', ref_date)
+
+    elif period == 'month':
+        import calendar as _cal
+        year, month = ref.year, ref.month
+        days_in_month = _cal.monthrange(year, month)[1]
+        dates = [f"{year}-{month:02d}-{d:02d}" for d in range(1, min(ref.day + 1, days_in_month + 1))]
+        return _get_rows_for_dates(conn, dates, 'month', ref_date)
+
+    return {'period': period, 'date': ref_date, 'rows': [], 'totals': {}}
+
+
+def _get_rows_for_dates(conn, dates, period, ref_date):
+    rows = []
+    for d in dates:
+        session = get_session(conn, d)
+        if not session:
+            rows.append({
+                'date': d, 'cash_income': 0, 'card_income': 0,
+                'coffee_portions': 0, 'opening_cash': 0,
+                'closing_cash': None, 'is_finalized': False,
+            })
+            continue
+        cash_income = max(0, (session.get('closing_cash') or 0) - (session.get('opening_cash') or 0))
+        rows.append({
+            'date': d,
+            'cash_income': cash_income,
+            'card_income': session.get('card_income') or 0,
+            'coffee_portions': session.get('coffee_portions') or 0,
+            'opening_cash': session.get('opening_cash') or 0,
+            'closing_cash': session.get('closing_cash'),
+            'is_finalized': bool(session.get('is_finalized')),
+        })
+    totals = _calc_totals(rows)
+    return {'period': period, 'date': ref_date, 'rows': rows, 'totals': totals}
+
+
+def _calc_totals(rows):
+    total_cash = sum(r.get('cash_income', 0) for r in rows)
+    total_card = sum(r.get('card_income', 0) for r in rows)
+    total_coffee = sum(r.get('coffee_portions', 0) for r in rows)
+    has_card = any(r.get('card_income', 0) > 0 for r in rows)
+    return {
+        'total_cash_income': total_cash,
+        'total_card_income': total_card,
+        'total_income': total_cash + total_card,
+        'total_coffee': total_coffee,
+        'has_card_data': has_card,
+        'avg_price_cash': round(total_cash / total_coffee, 2) if total_coffee > 0 else None,
+        'avg_price_total': round((total_cash + total_card) / total_coffee, 2) if total_coffee > 0 else None,
+    }
+
+
 def get_weekly_data(conn):
     """Returns last 7 days of daily_session data for chart."""
     today = datetime.now(timezone.utc).date()

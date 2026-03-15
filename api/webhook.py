@@ -19,7 +19,7 @@ from _db import (
     set_role, revoke_access, set_module_access,
     get_all_users, get_pending_users, MODULES, ADMIN_ID,
     get_or_create_session, get_session, update_session,
-    add_snapshot, get_snapshots, get_daily_summary,
+    add_snapshot, get_snapshots, get_daily_summary, is_admin,
 )
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
@@ -156,7 +156,8 @@ def user_manage_keyboard(uid):
             [
                 {"text": "👨‍🍳 Chef",    "callback_data": f"setrole:{uid}:chef"},
                 {"text": "☕ Barista", "callback_data": f"setrole:{uid}:barista"},
-                {"text": "🧑 Young",  "callback_data": f"setrole:{uid}:young"},
+                {"text": "🌱 Young",  "callback_data": f"setrole:{uid}:young"},
+                {"text": "🔑 Admin",  "callback_data": f"setrole:{uid}:admin"},
             ],
             [{"text": "🔧 Модулі",       "callback_data": f"modules:{uid}"}],
             [{"text": "🚫 Відкликати",   "callback_data": f"revoke:{uid}"}],
@@ -193,7 +194,8 @@ def pending_role_keyboard(uid):
             [
                 {"text": "👨‍🍳 Chef",    "callback_data": f"setrole:{uid}:chef"},
                 {"text": "☕ Barista", "callback_data": f"setrole:{uid}:barista"},
-                {"text": "🧑 Young",  "callback_data": f"setrole:{uid}:young"},
+                {"text": "🌱 Young",  "callback_data": f"setrole:{uid}:young"},
+                {"text": "🔑 Admin",  "callback_data": f"setrole:{uid}:admin"},
             ],
             [{"text": "🚫 Відхилити", "callback_data": f"revoke:{uid}"}],
         ]
@@ -299,7 +301,7 @@ def handle_start(conn, user_id, username, first_name, last_name, chat_id):
 
 
 def handle_admin(conn, user_id, chat_id):
-    if int(user_id) != ADMIN_ID:
+    if not is_admin(conn, user_id):
         send_message(chat_id, "Немає доступу.")
         return
     send_message(chat_id, "Адмін панель:", reply_markup=admin_keyboard())
@@ -354,7 +356,11 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
 
     # ── Admin panel ────────────────────────────────────────────────────────
     if data == "admin:users":
+        if not is_admin(conn, user_id):
+            return
+        # Only super-admin can see user management; admins see report only
         if int(user_id) != ADMIN_ID:
+            edit_message(chat_id, message_id, "Немає доступу до списку користувачів.", reply_markup=admin_keyboard())
             return
         users = get_all_users(conn)
         if not users:
@@ -369,7 +375,10 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         edit_message(chat_id, message_id, "Всі користувачі:", reply_markup={"inline_keyboard": rows})
 
     elif data == "admin:pending":
+        if not is_admin(conn, user_id):
+            return
         if int(user_id) != ADMIN_ID:
+            edit_message(chat_id, message_id, "Немає доступу.", reply_markup=admin_keyboard())
             return
         users = get_pending_users(conn)
         if not users:
@@ -383,7 +392,7 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         edit_message(chat_id, message_id, "Очікують доступу:", reply_markup={"inline_keyboard": rows})
 
     elif data == "admin:report":
-        if int(user_id) != ADMIN_ID:
+        if not is_admin(conn, user_id):
             return
         date_str = today_str()
         s = get_daily_summary(conn, date_str)
@@ -391,7 +400,7 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         edit_message(chat_id, message_id, text, reply_markup=admin_keyboard())
 
     elif data == "admin:back":
-        if int(user_id) != ADMIN_ID:
+        if not is_admin(conn, user_id):
             return
         edit_message(chat_id, message_id, "Адмін панель:", reply_markup=admin_keyboard())
 
@@ -437,7 +446,7 @@ def handle_callback(conn, callback_id, user_id, chat_id, message_id, data):
         set_role(conn, uid, role)
         u = get_user(conn, uid)
         display = f"@{u['username']}" if u and u.get("username") else uid_str
-        role_labels = {"chef": "Шеф", "barista": "Баріста", "young": "Стажер"}
+        role_labels = {"chef": "Шеф", "barista": "Баріста", "young": "Стажер", "admin": "Адмін"}
         role_label = role_labels.get(role, role)
         edit_message(chat_id, message_id,
             f"Роль {role_label} призначено для {display}.",

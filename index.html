@@ -58,6 +58,15 @@
     .banner-open { background: rgba(239,68,68,0.15); color: var(--red); }
     .banner-closed { background: rgba(34,197,94,0.15); color: var(--green); }
 
+    /* PERIOD TABS */
+    .period-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+    .period-btn {
+      flex: 1; padding: 8px 0; border-radius: 10px; border: none;
+      background: var(--bg2); color: var(--hint);
+      font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    .period-btn.active { background: var(--btn); color: var(--btn-text); }
+
     /* TABS */
     .tab-content { flex: 1; overflow-y: auto; padding: 14px 14px 8px; }
     .tab-pane { display: none; }
@@ -88,6 +97,40 @@
     .pos { color: var(--green); }
     .neg { color: var(--red); }
 
+    /* AVG PRICE CARD */
+    .avg-price-card {
+      background: var(--bg2); border-radius: var(--radius);
+      padding: 16px; margin-bottom: 14px;
+    }
+    .avg-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--hint); margin-bottom: 10px; }
+    .avg-row { font-size: 0.92rem; padding: 4px 0; }
+    .avg-row.primary { font-weight: 700; color: var(--green); font-size: 1rem; }
+    .avg-note { font-size: 0.75rem; color: var(--hint); margin-top: 8px; font-style: italic; }
+
+    /* BAR CHART */
+    .chart-section { margin-bottom: 14px; }
+    .chart-bars {
+      display: flex; align-items: flex-end; gap: 4px;
+      height: 120px; background: var(--bg2);
+      border-radius: var(--radius); padding: 12px 8px 0;
+      overflow-x: auto;
+    }
+    .bar-wrap { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 28px; }
+    .bar {
+      width: 100%; border-radius: 4px 4px 0 0;
+      background: var(--btn); min-height: 3px;
+      transition: height 0.3s; position: relative;
+    }
+    .bar.today { background: var(--green); }
+    .bar-val { font-size: 0.55rem; color: var(--hint); margin-bottom: 2px; text-align: center; }
+    .bar-date { font-size: 0.6rem; color: var(--hint); padding: 4px 0 6px; text-align: center; }
+
+    /* TOTALS SUMMARY */
+    .totals-row { display: flex; gap: 10px; margin-bottom: 14px; }
+    .total-card { flex: 1; background: var(--bg2); border-radius: var(--radius); padding: 14px 10px; text-align: center; }
+    .total-label { font-size: 0.7rem; color: var(--hint); margin-bottom: 6px; }
+    .total-val { font-size: 1.1rem; font-weight: 700; }
+
     /* SNAPSHOTS */
     .snap-item { background: var(--bg2); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px; font-size: 0.85rem; }
     .snap-top { display: flex; justify-content: space-between; margin-bottom: 4px; }
@@ -106,6 +149,9 @@
     /* TOAST */
     .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-80px); background: var(--green); color: #fff; padding: 10px 20px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; transition: transform 0.3s; z-index: 200; }
     .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* LOADING OVERLAY */
+    .dash-loading { text-align: center; padding: 40px; color: var(--hint); font-size: 0.9rem; }
   </style>
 </head>
 <body>
@@ -145,47 +191,18 @@
     <!-- Dashboard -->
     <div class="tab-pane active" id="tab-dash">
 
-      <!-- Status banner -->
-      <div id="day-banner" class="status-banner banner-open">🔴 День не закрито</div>
-
-      <!-- Metric cards -->
-      <div class="cards">
-        <div class="card">
-          <div class="card-icon">💵</div>
-          <div class="card-label">Виручка готівка</div>
-          <div class="card-val green" id="d-cash">—</div>
-        </div>
-        <div class="card">
-          <div class="card-icon">💳</div>
-          <div class="card-label">Картка</div>
-          <div class="card-val blue" id="d-card">—</div>
-        </div>
-        <div class="card">
-          <div class="card-icon">☕</div>
-          <div class="card-label">Порцій кави</div>
-          <div class="card-val yellow" id="d-coffee">—</div>
-        </div>
-        <div class="card">
-          <div class="card-icon">🏦</div>
-          <div class="card-label">Каса</div>
-          <div class="card-val" id="d-box">—</div>
-        </div>
+      <!-- Period toggle (admin only, hidden by default) -->
+      <div class="period-tabs" id="periodTabs" style="display:none">
+        <button class="period-btn active" data-period="day" onclick="selectPeriod(this)">День</button>
+        <button class="period-btn" data-period="week" onclick="selectPeriod(this)">Тиждень</button>
+        <button class="period-btn" data-period="month" onclick="selectPeriod(this)">Місяць</button>
       </div>
 
-      <!-- Breakdown -->
-      <div class="section-title">Деталі сьогодні</div>
-      <div class="breakdown">
-        <div class="brow"><span class="brow-label">💵 Виручка готівка</span><span class="brow-val pos" id="b-ci">—</span></div>
-        <div class="brow"><span class="brow-label">💳 Виручка картка</span><span class="brow-val pos" id="b-cr">—</span></div>
-        <div class="brow"><span class="brow-label">🏦 Розмінка (відкриття)</span><span class="brow-val" id="b-opening">—</span></div>
-        <div class="brow"><span class="brow-label">📤 Адмін виплати</span><span class="brow-val neg" id="b-wit">—</span></div>
-        <div class="brow"><span class="brow-label">📥 Адмін вплати</span><span class="brow-val pos" id="b-dep">—</span></div>
-        <div class="brow"><span class="brow-label">🧾 Витрати</span><span class="brow-val neg" id="b-exp">—</span></div>
+      <!-- Dynamic dashboard content -->
+      <div id="dashContent">
+        <div class="dash-loading"><div class="spinner" style="margin:0 auto 8px"></div>Завантаження...</div>
       </div>
 
-      <!-- Snapshots -->
-      <div class="section-title">Зрізи за день</div>
-      <div id="snapshots-list"><div class="empty-msg">Зрізів ще немає</div></div>
     </div>
 
     <!-- Profile -->
@@ -218,8 +235,10 @@ if (tg) { tg.ready(); tg.expand(); }
 
 const API = '';
 let currentUser = null;
+let currentPeriod = 'day';
+let dashRefreshTimer = null;
 
-const ROLES = { admin:'Адмін', chef:'Шеф', barista:'Баріста', young:'Стажер', trainee:'Стажер' };
+const ROLES = { admin:'Адмін', super_admin:'Супер-адмін', chef:'Шеф', barista:'Баріста', young:'Стажер', trainee:'Стажер' };
 const MODULES_META = {
   cash_income:  { icon:'💵', label:'Готівка' },
   card_income:  { icon:'💳', label:'Картка' },
@@ -238,13 +257,24 @@ function show(id) {
   const target = document.getElementById(id);
   if (target) {
     target.classList.add('active');
-    target.style.display = id === 'appScreen' ? 'flex' : 'flex';
+    target.style.display = 'flex';
   }
 }
 
 function fmt(n) {
   if (n === null || n === undefined) return '—';
   return (Number(n)||0).toLocaleString('uk-UA', {minimumFractionDigits:0, maximumFractionDigits:2}) + ' zł';
+}
+
+function fmtShort(n) {
+  if (n === null || n === undefined || n === 0) return '0';
+  const v = Number(n);
+  if (v >= 1000) return (v/1000).toFixed(1) + 'k';
+  return v.toFixed(0);
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function switchTab(name, btn) {
@@ -261,60 +291,195 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-// ── DATA ──
-async function loadDashboard() {
+function isAdminUser() {
+  if (!currentUser) return false;
+  return currentUser.role === 'admin' || currentUser.role === 'super_admin' || currentUser.id === 199897236;
+}
+
+function selectPeriod(btn) {
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentPeriod = btn.dataset.period;
+  loadDashboard(currentPeriod);
+}
+
+// ── DASHBOARD RENDERING ──────────────────────────────────────────────────────
+
+async function loadDashboard(period) {
+  period = period || 'day';
+  const container = document.getElementById('dashContent');
+  container.innerHTML = '<div class="dash-loading"><div class="spinner" style="margin:0 auto 8px"></div>Завантаження...</div>';
+
   try {
-    const s = await fetch(API + '/api/summary').then(r => r.json());
-
-    // Status banner
-    const banner = document.getElementById('day-banner');
-    if (s.is_finalized) {
-      const closedTime = s.closed_at ? s.closed_at.slice(11, 16) : '';
-      banner.textContent = '✅ День закрито' + (closedTime ? ' о ' + closedTime : '');
-      banner.className = 'status-banner banner-closed';
+    if (isAdminUser() && period !== 'day') {
+      const data = await fetch(`${API}/api/analytics?user_id=${currentUser.id}&period=${period}&date=${today()}`)
+        .then(r => r.json());
+      renderAnalytics(data, container);
     } else {
-      banner.textContent = '🔴 День не закрито';
-      banner.className = 'status-banner banner-open';
+      const data = await fetch(`${API}/api/summary`).then(r => r.json());
+      renderDayDashboard(data, container);
     }
+  } catch(e) {
+    container.innerHTML = `<div class="empty-msg">⚠️ Помилка завантаження</div>`;
+    console.error('loadDashboard:', e);
+  }
+}
 
-    // Cards
-    document.getElementById('d-cash').textContent = fmt(s.cash_income);
-    document.getElementById('d-card').textContent = fmt(s.card_income);
-    document.getElementById('d-coffee').textContent = (s.coffee_portions||0) + ' шт';
-    document.getElementById('d-box').textContent =
-      s.closing_cash !== null && s.closing_cash !== undefined
-        ? fmt(s.closing_cash)
-        : 'не закрито';
+function renderDayDashboard(s, container) {
+  const isFinalized = s.is_finalized;
+  const closedTime = s.closed_at ? s.closed_at.slice(11, 16) : '';
+  const bannerClass = isFinalized ? 'banner-closed' : 'banner-open';
+  const bannerText = isFinalized
+    ? '✅ День закрито' + (closedTime ? ' о ' + closedTime : '')
+    : '🔴 День ще не закрито';
 
-    // Breakdown rows
-    document.getElementById('b-ci').textContent = fmt(s.cash_income);
-    document.getElementById('b-cr').textContent = fmt(s.card_income);
-    document.getElementById('b-opening').textContent = fmt(s.opening_cash);
-    document.getElementById('b-wit').textContent = s.admin_withdrawals ? fmt(s.admin_withdrawals) : '—';
-    document.getElementById('b-dep').textContent = s.admin_deposits ? fmt(s.admin_deposits) : '—';
-    document.getElementById('b-exp').textContent = s.expenses ? fmt(s.expenses) : '—';
+  const cashIncome = s.cash_income ?? 0;
+  const cardIncome = s.card_income ?? 0;
+  const coffeePortions = s.coffee_portions ?? 0;
+  const closingCash = s.closing_cash;
+  const openingCash = s.opening_cash ?? 0;
+  const adminWit = s.admin_withdrawals ?? 0;
+  const adminDep = s.admin_deposits ?? 0;
+  const expenses = s.expenses ?? 0;
 
-    // Snapshots
-    const sl = document.getElementById('snapshots-list');
-    const snaps = s.snapshots || [];
-    if (!snaps.length) {
-      sl.innerHTML = '<div class="empty-msg">Зрізів ще немає</div>';
-    } else {
-      sl.innerHTML = snaps.map(snap => {
-        const parts = [];
-        if (snap.cash_amount !== null && snap.cash_amount !== undefined)
-          parts.push('💵 каса ' + fmt(snap.cash_amount));
-        if (snap.coffee_portions !== null && snap.coffee_portions !== undefined)
-          parts.push('☕ кава ' + snap.coffee_portions + ' шт');
-        return `<div class="snap-item">
-          <div class="snap-top">
-            <span class="snap-time">${snap.time || ''}</span>
-          </div>
-          <div class="snap-detail">${parts.join(' · ') || '—'}${snap.notes ? ' · ' + snap.notes : ''}</div>
-        </div>`;
-      }).join('');
-    }
-  } catch(e) { console.error('loadDashboard:', e); }
+  // Avg price
+  let avgHtml = '';
+  if (coffeePortions > 0) {
+    const avgCash = cashIncome / coffeePortions;
+    const avgTotal = (cashIncome + cardIncome) / coffeePortions;
+    const hasCard = cardIncome > 0;
+    avgHtml = `
+      <div class="avg-price-card">
+        <div class="avg-title">☕ Середня ціна порції</div>
+        <div class="avg-row${!hasCard ? ' primary' : ''}">💵 Готівкова: ${avgCash.toFixed(2)} zł</div>
+        ${hasCard ? `<div class="avg-row primary">💳 Загальна: ${avgTotal.toFixed(2)} zł</div>` : ''}
+        ${!hasCard ? '<div class="avg-note">(картку не внесено — неточна)</div>' : ''}
+      </div>`;
+  }
+
+  // Snapshots
+  const snaps = s.snapshots || [];
+  const snapsHtml = snaps.length ? snaps.map(snap => {
+    const parts = [];
+    if (snap.cash_amount != null) parts.push('💵 каса ' + fmt(snap.cash_amount));
+    if (snap.coffee_portions != null) parts.push('☕ кава ' + snap.coffee_portions + ' шт');
+    return `<div class="snap-item">
+      <div class="snap-top"><span class="snap-time">${snap.time || ''}</span></div>
+      <div class="snap-detail">${parts.join(' · ') || '—'}${snap.notes ? ' · ' + snap.notes : ''}</div>
+    </div>`;
+  }).join('') : '<div class="empty-msg">Зрізів ще немає</div>';
+
+  container.innerHTML = `
+    <div id="dayStatus" class="status-banner ${bannerClass}">${bannerText}</div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">💵</div>
+        <div class="card-label">Виручка готівка</div>
+        <div class="card-val green">${fmt(cashIncome)}</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">💳</div>
+        <div class="card-label">Виручка картка</div>
+        <div class="card-val blue">${fmt(cardIncome)}</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">☕</div>
+        <div class="card-label">Порцій кави</div>
+        <div class="card-val yellow">${coffeePortions} шт</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🏦</div>
+        <div class="card-label">Каса</div>
+        <div class="card-val">${closingCash != null ? fmt(closingCash) : 'Не закрито'}</div>
+      </div>
+    </div>
+
+    ${avgHtml}
+
+    <div class="section-title">Деталі сьогодні</div>
+    <div class="breakdown">
+      <div class="brow"><span class="brow-label">💵 Виручка готівка</span><span class="brow-val pos">${fmt(cashIncome)}</span></div>
+      <div class="brow"><span class="brow-label">💳 Виручка картка</span><span class="brow-val pos">${fmt(cardIncome)}</span></div>
+      <div class="brow"><span class="brow-label">🏦 Розмінка (відкриття)</span><span class="brow-val">${fmt(openingCash)}</span></div>
+      ${adminWit ? `<div class="brow"><span class="brow-label">📤 Адмін виплати</span><span class="brow-val neg">${fmt(adminWit)}</span></div>` : ''}
+      ${adminDep ? `<div class="brow"><span class="brow-label">📥 Адмін вплати</span><span class="brow-val pos">${fmt(adminDep)}</span></div>` : ''}
+      ${expenses ? `<div class="brow"><span class="brow-label">🧾 Витрати</span><span class="brow-val neg">${fmt(expenses)}</span></div>` : ''}
+    </div>
+
+    <div class="section-title">📸 Зрізи за день</div>
+    <div id="snapshotsList">${snapsHtml}</div>
+  `;
+}
+
+function renderAnalytics(data, container) {
+  const rows = data.rows || [];
+  const totals = data.totals || {};
+  const period = data.period;
+  const todayStr = today();
+
+  // Totals strip
+  const totalHtml = `
+    <div class="totals-row">
+      <div class="total-card">
+        <div class="total-label">💵 Готівка</div>
+        <div class="total-val green">${fmt(totals.total_cash_income)}</div>
+      </div>
+      <div class="total-card">
+        <div class="total-label">💳 Картка</div>
+        <div class="total-val blue">${fmt(totals.total_card_income)}</div>
+      </div>
+      <div class="total-card">
+        <div class="total-label">☕ Порції</div>
+        <div class="total-val yellow">${totals.total_coffee || 0}</div>
+      </div>
+    </div>`;
+
+  // Avg price
+  let avgHtml = '';
+  if (totals.total_coffee > 0) {
+    const hasCard = totals.has_card_data;
+    avgHtml = `
+      <div class="avg-price-card">
+        <div class="avg-title">☕ Середня ціна порції</div>
+        <div class="avg-row${!hasCard ? ' primary' : ''}">💵 Готівкова: ${totals.avg_price_cash ?? '—'} zł</div>
+        ${hasCard ? `<div class="avg-row primary">💳 Загальна: ${totals.avg_price_total ?? '—'} zł</div>` : ''}
+        ${!hasCard ? '<div class="avg-note">(картку не внесено — неточна)</div>' : ''}
+      </div>`;
+  }
+
+  // Bar chart
+  const maxVal = Math.max(...rows.map(r => r.cash_income || 0), 1);
+  const barsHtml = rows.map(r => {
+    const pct = Math.round(((r.cash_income || 0) / maxVal) * 80);
+    const isToday = r.date === todayStr;
+    const label = r.date ? r.date.slice(5) : ''; // MM-DD
+    return `<div class="bar-wrap">
+      <div class="bar-val">${fmtShort(r.cash_income)}</div>
+      <div class="bar ${isToday ? 'today' : ''}" style="height:${pct}px"></div>
+      <div class="bar-date">${label}</div>
+    </div>`;
+  }).join('');
+
+  // Rows table
+  const rowsHtml = rows.map(r => {
+    const statusIcon = r.is_finalized ? '✅' : '🔴';
+    return `<div class="brow">
+      <span class="brow-label">${statusIcon} ${r.date}</span>
+      <span class="brow-val pos">${fmt(r.cash_income)}${r.card_income ? ' + ' + fmt(r.card_income) : ''}</span>
+    </div>`;
+  }).join('');
+
+  container.innerHTML = `
+    ${totalHtml}
+    ${avgHtml}
+    <div class="chart-section" id="chartSection">
+      <div class="section-title">📈 Чиста виручка (готівка)</div>
+      <div class="chart-bars" id="chartBars">${barsHtml}</div>
+    </div>
+    <div class="section-title" style="margin-top:14px">📅 По днях</div>
+    <div class="breakdown">${rowsHtml || '<div class="empty-msg">Немає даних</div>'}</div>
+  `;
 }
 
 function buildProfile(user, role, modules) {
@@ -332,7 +497,7 @@ function buildProfile(user, role, modules) {
   pm.className = 'breakdown';
 }
 
-// ── AUTH ──
+// ── AUTH ──────────────────────────────────────────────────────────────────────
 async function init() {
   const user = tg?.initDataUnsafe?.user;
 
@@ -351,14 +516,25 @@ async function init() {
     const data = await resp.json();
 
     if (data.status === 'approved') {
-      currentUser = { ...user };
-      const roleLabel = ROLES[data.role]||data.role||'—';
-      document.getElementById('hDate').textContent = new Date().toLocaleDateString('uk-UA',{day:'numeric',month:'long'});
+      currentUser = { ...user, role: data.role, modules: data.modules || {} };
+      const roleLabel = ROLES[data.role] || data.role || '—';
+      document.getElementById('hDate').textContent = new Date().toLocaleDateString('uk-UA', {day:'numeric', month:'long'});
       document.getElementById('hRole').textContent = roleLabel;
-      buildProfile(user, data.role, data.modules||{});
+      buildProfile(user, data.role, data.modules || {});
+
+      // Show period toggle for admins
+      if (isAdminUser()) {
+        document.getElementById('periodTabs').style.display = 'flex';
+      }
+
       show('appScreen');
-      loadDashboard();
-      setInterval(loadDashboard, 30000);
+      loadDashboard('day');
+
+      // Auto-refresh every 30s (day view only)
+      dashRefreshTimer = setInterval(() => {
+        if (currentPeriod === 'day') loadDashboard('day');
+      }, 30000);
+
     } else if (data.status === 'pending') {
       show('pendingScreen');
     } else {
