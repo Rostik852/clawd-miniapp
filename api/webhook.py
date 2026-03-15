@@ -3,8 +3,10 @@ Telegram Bot Webhook Handler — Vercel Serverless Function
 Cafe Cash Flow Management Bot
 """
 
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+
 import json
-import os
 from http.server import BaseHTTPRequestHandler
 from datetime import datetime, timezone
 

@@ -47,6 +47,14 @@ def ensure_tables(conn):
                 created_at TEXT
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS bot_state (
+                user_id BIGINT PRIMARY KEY,
+                state TEXT,
+                data TEXT,
+                updated_at TEXT
+            )
+        """)
         conn.commit()
 
 
