@@ -688,7 +688,7 @@ async function loadDashboard(period) {
   if (period === 'day' && cachedSummary && (Date.now() - lastFetchTime < 30000)) {
     renderDayDashboard(cachedSummary, container);
     // Refresh in background silently
-    fetch(`${API}/api/summary?user_id=${currentUser.id}`)
+    fetch(`${API}/api/data?type=summary&user_id=${currentUser.id}`)
       .then(r => r.json())
       .then(data => {
         cachedSummary = data;
@@ -711,7 +711,7 @@ async function loadDashboard(period) {
         .then(r => r.json());
       renderAnalytics(data, container);
     } else {
-      const data = await fetch(`${API}/api/summary?user_id=${currentUser.id}`).then(r => r.json());
+      const data = await fetch(`${API}/api/data?type=summary&user_id=${currentUser.id}`).then(r => r.json());
       cachedSummary = data;
       lastFetchTime = Date.now();
       renderDayDashboard(data, container);
@@ -1357,7 +1357,7 @@ init();
     async function loadEnterStatus() {
       if (!currentUser) return;
       try {
-        const data = await fetch(`${API}/api/summary?user_id=${currentUser.id}`).then(r => r.json());
+        const data = await fetch(`${API}/api/data?type=summary&user_id=${currentUser.id}`).then(r => r.json());
         const banner = document.getElementById('enterStatusBanner');
         if (banner) {
           const ct = data.closed_at ? data.closed_at.slice(11, 16) : '';
