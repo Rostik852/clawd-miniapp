@@ -2,32 +2,50 @@
 <html lang="uk">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>☕ Cafe App</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
     :root {
-      --bg: var(--tg-theme-bg-color, #0f0f1a);
-      --bg2: var(--tg-theme-secondary-bg-color, #1a1a2e);
-      --text: var(--tg-theme-text-color, #e8eaf0);
-      --hint: var(--tg-theme-hint-color, #8892a4);
-      --btn: var(--tg-theme-button-color, #3a86ff);
-      --btn-text: var(--tg-theme-button-text-color, #fff);
-      --green: #22c55e;
-      --red: #ef4444;
-      --yellow: #f59e0b;
-      --radius: 14px;
-      --tab-h: 60px;
+      --bg: #12100E;
+      --bg2: #1E1A17;
+      --bg3: #252018;
+      --text: #F0EDE8;
+      --hint: #8A7F75;
+      --border: rgba(200,149,108,0.15);
+      --btn: #C8956C;
+      --btn-text: #12100E;
+      --accent: #C8956C;
+      --green: #4CAF7D;
+      --blue: #5B9BD5;
+      --orange: #E8A838;
+      --red: #E05555;
+      --radius: 16px;
+      --radius-sm: 10px;
     }
     body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       height: 100vh;
       overflow: hidden;
       overscroll-behavior: none;
       -webkit-overflow-scrolling: touch;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    h1, h2, .header-title, .drawer-title { font-family: 'Playfair Display', serif; }
+    .section-title {
+      font-family: 'Inter', sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: var(--hint);
+      margin-bottom: 10px;
     }
 
     /* SCREENS */
@@ -46,10 +64,27 @@
     #appScreen { display: none; flex-direction: column; height: 100vh; overflow: hidden; }
     #appScreen.active { display: flex; }
 
-    .header { background: var(--bg2); padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-    .header-title { font-weight: 700; font-size: 1.1rem; }
-    .header-date { font-size: 0.78rem; color: var(--hint); }
-    .role-badge { font-size: 0.78rem; padding: 4px 12px; border-radius: 20px; background: rgba(58,134,255,0.15); color: var(--btn); font-weight: 600; }
+    /* HEADER */
+    .header {
+      background: var(--bg2);
+      padding: 12px 16px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      flex-shrink: 0;
+    }
+    .header-left { display: flex; align-items: center; gap: 8px; }
+    .header-logo { font-size: 1.3rem; }
+    .header-title { font-family: 'Playfair Display', serif; font-size: 1.15rem; font-weight: 600; color: var(--accent); }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    .role-badge { font-size: 0.7rem; padding: 3px 10px; border-radius: 20px; background: rgba(200,149,108,0.15); color: var(--accent); font-weight: 600; border: 1px solid rgba(200,149,108,0.3); }
+    .hamburger-btn { background: none; border: none; cursor: pointer; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+    .hamburger-btn span { display: block; width: 20px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.2s; }
 
     /* STATUS BANNER */
     .status-banner {
@@ -57,28 +92,26 @@
       padding: 10px 16px; border-radius: var(--radius);
       font-size: 0.85rem; font-weight: 600; margin-bottom: 12px;
     }
-    .banner-open { background: rgba(239,68,68,0.15); color: var(--red); }
-    .banner-closed { background: rgba(34,197,94,0.15); color: var(--green); }
+    .banner-open { background: rgba(224,85,85,0.15); color: var(--red); }
+    .banner-closed { background: rgba(76,175,125,0.15); color: var(--green); }
 
-    /* PERIOD TABS */
-    .period-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
-    .period-btn {
-      flex: 1; padding: 8px 0; border-radius: 10px; border: none;
-      background: var(--bg2); color: var(--hint);
-      font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
-    }
-    .period-btn.active { background: var(--btn); color: var(--btn-text); }
+    /* STATUS TOAST */
+    .status-toast { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; margin-bottom: 12px; border-radius: 10px; font-size: 0.82rem; font-weight: 500; border-left: 3px solid var(--green); background: rgba(76,175,125,0.1); }
+    .status-toast.warn { border-left-color: var(--orange); background: rgba(232,168,56,0.08); }
+    .toast-dismiss { background: none; border: none; color: var(--hint); cursor: pointer; font-size: 0.9rem; padding: 0 0 0 8px; flex-shrink: 0; }
+
+    /* PERIOD PILL + DROPDOWN */
+    .period-pill { background: transparent; border: 1.5px solid var(--accent); color: var(--accent); padding: 7px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; }
+    .period-dropdown { position: absolute; top: calc(100% + 4px); left: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); overflow: hidden; z-index: 40; min-width: 160px; display: none; }
+    .period-dropdown.open { display: block; }
+    .period-dropdown button { display: block; width: 100%; text-align: left; padding: 12px 16px; background: none; border: none; color: var(--text); font-size: 0.9rem; cursor: pointer; border-bottom: 1px solid var(--border); }
+    .period-dropdown button:last-child { border-bottom: none; }
+    .period-dropdown button:active { background: rgba(200,149,108,0.1); color: var(--accent); }
 
     /* TABS */
-    .tab-content { flex: 1; overflow-y: auto; padding: 14px 14px 8px; -webkit-overflow-scrolling: touch; scroll-behavior: smooth; }
+    .tab-content { flex: 1; overflow-y: auto; padding: 14px 16px 80px; -webkit-overflow-scrolling: touch; scroll-behavior: smooth; }
     .tab-pane { display: none; opacity: 0; transition: opacity 0.15s ease; }
     .tab-pane.active { display: block; opacity: 1; }
-
-    .bottom-tabs { height: var(--tab-h); background: var(--bg2); display: flex; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.06); }
-    .tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 0.6rem; color: var(--hint); cursor: pointer; transition: color 0.2s; border: none; background: none; position: relative; user-select: none; -webkit-user-select: none; }
-    .tab-btn.active { color: var(--btn); }
-    .tab-btn.active::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 24px; height: 2px; background: var(--btn); border-radius: 2px; }
-    .tab-btn span { font-size: 1.3rem; }
 
     /* SKELETON LOADER */
     .skeleton {
@@ -95,19 +128,27 @@
     .skeleton-row { height: 20px; margin-bottom: 8px; }
     .skeleton-row.short { width: 60%; }
 
-    /* CARDS */
+    /* HORIZONTAL STAT CARDS */
+    .stat-card { display: flex; align-items: center; gap: 14px; background: var(--bg2); border-radius: var(--radius); padding: 16px; margin-bottom: 10px; border: 1px solid var(--border); width: 100%; }
+    .stat-icon-wrap { width: 44px; height: 44px; border-radius: 12px; background: rgba(200,149,108,0.12); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .stat-icon { font-size: 1.4rem; }
+    .stat-body { flex: 1; }
+    .stat-label { font-size: 0.72rem; color: var(--hint); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .stat-value { font-size: 1.3rem; font-weight: 700; }
+    .green { color: var(--green); }
+    .blue { color: var(--blue); }
+    .orange { color: var(--orange); }
+
+    /* OLD CARDS (kept for backward compat) */
     .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-    .card { background: var(--bg2); border-radius: var(--radius); padding: 18px 14px; user-select: none; -webkit-user-select: none; }
+    .card { background: var(--bg2); border-radius: var(--radius); padding: 18px 14px; user-select: none; -webkit-user-select: none; border: 1px solid var(--border); }
     .card-icon { font-size: 1.8rem; margin-bottom: 8px; }
     .card-label { font-size: 0.78rem; color: var(--hint); margin-bottom: 6px; }
     .card-val { font-size: 1.4rem; font-weight: 700; }
-    .green { color: var(--green); }
-    .blue { color: var(--btn); }
-    .yellow { color: var(--yellow); }
+    .yellow { color: var(--orange); }
 
     /* BREAKDOWN */
-    .section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--hint); margin-bottom: 10px; }
-    .breakdown { background: var(--bg2); border-radius: var(--radius); overflow: hidden; margin-bottom: 14px; }
+    .breakdown { background: var(--bg2); border-radius: var(--radius); overflow: hidden; margin-bottom: 14px; border: 1px solid var(--border); }
     .brow { display: flex; justify-content: space-between; align-items: center; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.92rem; }
     .brow:last-child { border-bottom: none; }
     .brow-label { color: var(--hint); }
@@ -118,7 +159,7 @@
     /* AVG PRICE CARD */
     .avg-price-card {
       background: var(--bg2); border-radius: var(--radius);
-      padding: 16px; margin-bottom: 14px;
+      padding: 16px; margin-bottom: 14px; border: 1px solid var(--border);
     }
     .avg-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--hint); margin-bottom: 10px; }
     .avg-row { font-size: 0.92rem; padding: 4px 0; }
@@ -131,7 +172,7 @@
       display: flex; align-items: flex-end; gap: 4px;
       height: 120px; background: var(--bg2);
       border-radius: var(--radius); padding: 12px 8px 0;
-      overflow-x: auto;
+      overflow-x: auto; border: 1px solid var(--border);
     }
     .bar-wrap { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 28px; }
     .bar {
@@ -145,22 +186,22 @@
 
     /* TOTALS SUMMARY */
     .totals-row { display: flex; gap: 10px; margin-bottom: 14px; }
-    .total-card { flex: 1; background: var(--bg2); border-radius: var(--radius); padding: 14px 10px; text-align: center; }
+    .total-card { flex: 1; background: var(--bg2); border-radius: var(--radius); padding: 14px 10px; text-align: center; border: 1px solid var(--border); }
     .total-label { font-size: 0.7rem; color: var(--hint); margin-bottom: 6px; }
     .total-val { font-size: 1.1rem; font-weight: 700; }
 
     /* SNAPSHOTS */
-    .snap-item { background: var(--bg2); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px; font-size: 0.85rem; }
+    .snap-item { background: var(--bg2); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px; font-size: 0.85rem; border: 1px solid var(--border); }
     .snap-top { display: flex; justify-content: space-between; margin-bottom: 4px; }
-    .snap-time { font-weight: 700; color: var(--btn); }
+    .snap-time { font-weight: 700; color: var(--accent); }
     .snap-detail { color: var(--hint); }
 
     /* PROFILE */
     .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .mod-card { background: var(--bg2); border-radius: var(--radius); padding: 18px 14px; cursor: pointer; text-align: center; transition: opacity 0.15s; user-select: none; -webkit-user-select: none; }
+    .mod-card { background: var(--bg2); border-radius: var(--radius); padding: 18px 14px; cursor: pointer; text-align: center; transition: opacity 0.15s; user-select: none; -webkit-user-select: none; border: 1px solid var(--border); }
     .mod-card:active { opacity: 0.7; transform: scale(0.97); }
-    button:active, .tab-btn:active { transform: scale(0.97); transition: transform 0.1s; }
-    input:focus, textarea:focus { border-color: var(--btn) !important; box-shadow: 0 0 0 2px rgba(58,134,255,0.2); transition: all 0.2s; }
+    button:active { transform: scale(0.97); transition: transform 0.1s; }
+    input:focus, textarea:focus { border-color: var(--accent) !important; box-shadow: 0 0 0 2px rgba(200,149,108,0.2); transition: all 0.2s; }
     .mod-icon { font-size: 1.8rem; margin-bottom: 8px; }
     .mod-label { font-size: 0.8rem; font-weight: 600; }
 
@@ -178,7 +219,7 @@
       flex: 1;
       padding: 9px 8px;
       background: var(--bg2);
-      border: 1px solid rgba(255,255,255,0.08);
+      border: 1px solid var(--border);
       border-radius: 10px;
       color: var(--hint);
       font-size: 0.82rem;
@@ -186,38 +227,49 @@
       transition: all 0.2s;
     }
     .fmt-btn.active {
-      background: rgba(58,134,255,0.15);
-      border-color: var(--btn);
-      color: var(--btn);
+      background: rgba(200,149,108,0.15);
+      border-color: var(--accent);
+      color: var(--accent);
       font-weight: 600;
     }
 
     /* ── ENTER TAB ───────────────────────────────────────────── */
-    .section-card { background: var(--bg2); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+    .section-card { background: var(--bg2); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; border: 1px solid var(--border); }
     .section-card-title { font-size: 1rem; font-weight: 700; margin-bottom: 12px; }
 
     .mode-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
-    .mode-btn { flex: 1; padding: 10px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; background: var(--bg); color: var(--hint); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-    .mode-btn.active { background: rgba(58,134,255,0.15); border-color: var(--btn); color: var(--btn); }
+    .mode-btn { flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--hint); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .mode-btn.active { background: rgba(200,149,108,0.15); border-color: var(--accent); color: var(--accent); }
 
     .type-selector { display: flex; gap: 8px; margin-bottom: 14px; }
-    .type-btn { flex: 1; padding: 12px 6px; border-radius: 12px; border: 1.5px solid rgba(255,255,255,0.1); background: var(--bg); color: var(--hint); font-size: 0.8rem; font-weight: 600; cursor: pointer; text-align: center; transition: all 0.2s; }
-    .type-btn.active { border-color: var(--btn); color: var(--btn); background: rgba(58,134,255,0.1); }
+    .type-btn { flex: 1; padding: 12px 6px; border-radius: 12px; border: 1.5px solid var(--border); background: var(--bg); color: var(--hint); font-size: 0.8rem; font-weight: 600; cursor: pointer; text-align: center; transition: all 0.2s; }
+    .type-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(200,149,108,0.1); }
+
+    html, body { touch-action: manipulation; }
 
     /* DENOMINATION CALCULATOR */
     .denom-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
-    .denom-btn { padding: 12px 0; border-radius: 10px; border: 1.5px solid rgba(255,255,255,0.1); background: var(--bg); color: var(--text); font-size: 0.88rem; font-weight: 700; cursor: pointer; text-align: center; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; transition: all 0.15s; user-select: none; -webkit-user-select: none; }
-    .denom-btn.has-count { border-color: var(--btn); background: rgba(58,134,255,0.12); color: var(--btn); }
+    .denom-btn { padding: 12px 0; border-radius: 10px; border: 1.5px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.88rem; font-weight: 700; cursor: pointer; text-align: center; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; transition: all 0.15s; user-select: none; -webkit-user-select: none; }
+    .denom-btn.has-count { border-color: var(--accent); background: rgba(200,149,108,0.12); color: var(--accent); }
     .denom-count { font-size: 0.65rem; font-weight: 400; color: var(--hint); }
-    .denom-btn.has-count .denom-count { color: var(--btn); }
+    .denom-btn.has-count .denom-count { color: var(--accent); }
     .denom-total { font-size: 1.2rem; font-weight: 700; color: var(--green); text-align: center; margin-bottom: 10px; }
     .denom-breakdown { margin-bottom: 12px; }
-    .denom-row { display: flex; justify-content: space-between; font-size: 0.82rem; padding: 3px 0; color: var(--hint); }
-    .denom-row span:last-child { color: var(--text); font-weight: 600; }
+    .denom-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .denom-row:last-child { border-bottom: none; }
+    .denom-name { font-weight: 600; font-size: 0.95rem; min-width: 65px; }
+    .denom-controls { display: flex; align-items: center; gap: 8px; }
+    .denom-pm { width: 36px; height: 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: var(--bg); color: var(--text); font-size: 1.3rem; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; user-select: none; }
+    .denom-pm:active { transform: scale(0.88); background: rgba(200,149,108,0.15); }
+    .denom-qty { width: 52px; text-align: center; background: var(--bg); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 7px 4px; color: var(--text); font-size: 0.95rem; outline: none; }
+    .denom-qty:focus { border-color: var(--accent); }
+    .denom-sub { font-size: 0.78rem; color: var(--hint); min-width: 64px; text-align: right; }
+    .denom-total-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0 4px; font-weight: 700; font-size: 1rem; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 4px; }
+    .denom-total-val { color: var(--accent); font-size: 1.1rem; }
 
     /* NUM INPUT */
-    .num-input { width: 100%; background: var(--bg); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px 16px; color: var(--text); font-size: 1.1rem; outline: none; margin-bottom: 12px; -webkit-appearance: none; }
-    .num-input:focus { border-color: var(--btn); }
+    .num-input { width: 100%; background: var(--bg); border: 1.5px solid var(--border); border-radius: 10px; padding: 14px 16px; color: var(--text); font-size: 1.1rem; outline: none; margin-bottom: 12px; -webkit-appearance: none; }
+    .num-input:focus { border-color: var(--accent); }
 
     /* ACTION BUTTONS */
     .action-btn { width: 100%; padding: 14px; border-radius: 12px; border: none; font-size: 0.95rem; font-weight: 700; cursor: pointer; margin-bottom: 8px; transition: opacity 0.15s; }
@@ -229,7 +281,7 @@
     /* WIZARD */
     .wizard-steps { display: flex; gap: 6px; margin-bottom: 14px; }
     .wizard-step-dot { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.1); transition: background 0.3s; }
-    .wizard-step-dot.active { background: var(--btn); }
+    .wizard-step-dot.active { background: var(--accent); }
     .wizard-step-dot.done { background: var(--green); }
     .wizard-step-label { font-size: 0.75rem; color: var(--hint); margin-bottom: 6px; }
     .wizard-step-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 14px; }
@@ -239,9 +291,42 @@
     .confirm-row:last-child { border-bottom: none; }
     .confirm-label { color: var(--hint); }
     .confirm-val { font-weight: 700; }
+
+    /* FAB */
+    .fab-container { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom)); right: 20px; z-index: 60; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+    .fab-btn { width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: var(--btn-text); border: none; font-size: 1.6rem; cursor: pointer; box-shadow: 0 4px 20px rgba(200,149,108,0.4); transition: transform 0.2s, box-shadow 0.2s; display: flex; align-items: center; justify-content: center; }
+    .fab-btn.open { transform: rotate(45deg); box-shadow: 0 4px 24px rgba(200,149,108,0.6); }
+    .fab-menu { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; opacity: 0; pointer-events: none; transform: translateY(10px); transition: all 0.2s ease; }
+    .fab-menu.open { opacity: 1; pointer-events: all; transform: translateY(0); }
+    .fab-item { display: flex; align-items: center; gap: 10px; background: var(--bg2); border: 1px solid var(--border); border-radius: 24px; padding: 10px 16px 10px 14px; cursor: pointer; color: var(--text); font-size: 0.88rem; font-weight: 500; white-space: nowrap; box-shadow: 0 2px 12px rgba(0,0,0,0.3); }
+    .fab-item-icon { font-size: 1.1rem; }
+
+    /* DRAWER */
+    .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 70; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+    .drawer-overlay.open { opacity: 1; pointer-events: all; }
+    .drawer { position: fixed; top: 0; right: -280px; width: 280px; height: 100vh; background: var(--bg2); z-index: 80; display: flex; flex-direction: column; transition: right 0.25s ease; padding-top: env(safe-area-inset-top); box-shadow: -4px 0 24px rgba(0,0,0,0.4); }
+    .drawer.open { right: 0; }
+    .drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .drawer-title { font-family: 'Playfair Display', serif; font-size: 1.1rem; color: var(--accent); }
+    .drawer-close { background: none; border: none; color: var(--hint); font-size: 1.1rem; cursor: pointer; padding: 4px 8px; }
+    .drawer-nav { display: flex; flex-direction: column; padding: 12px 0; flex: 1; }
+    .drawer-item { background: none; border: none; color: var(--text); text-align: left; padding: 14px 20px; font-size: 0.95rem; cursor: pointer; transition: background 0.15s; border-left: 3px solid transparent; }
+    .drawer-item:hover, .drawer-item.active { color: var(--accent); background: rgba(200,149,108,0.08); border-left-color: var(--accent); }
+    .drawer-footer { padding: 16px 20px; border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--hint); }
   </style>
 </head>
 <body>
+<script>
+document.addEventListener('touchmove', function(e) {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
+let _lastTap = 0;
+document.addEventListener('touchend', function(e) {
+  const now = Date.now();
+  if (now - _lastTap < 300) e.preventDefault();
+  _lastTap = now;
+}, { passive: false });
+</script>
 
 <!-- LOADER -->
 <div id="loadScreen" class="screen active">
@@ -266,23 +351,40 @@
 
 <!-- APP -->
 <div id="appScreen" class="screen" style="height:100vh;overflow:hidden;">
-  <div class="header">
-    <div>
-      <div class="header-title">☕ Cafe App</div>
-      <div class="header-date" id="hDate"></div>
+  <div class="header" id="appHeader">
+    <div class="header-left">
+      <span class="header-logo">☕</span>
+      <span class="header-title">Cafe</span>
     </div>
-    <div class="role-badge" id="hRole">—</div>
+    <div class="header-right">
+      <span class="role-badge" id="hRole"></span>
+      <button class="hamburger-btn" onclick="toggleDrawer()" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
   </div>
 
   <div class="tab-content">
     <!-- Dashboard -->
     <div class="tab-pane active" id="tab-dash">
 
-      <!-- Period toggle (admin only, hidden by default) -->
-      <div class="period-tabs" id="periodTabs" style="display:none">
-        <button class="period-btn active" data-period="day" onclick="selectPeriod(this)">День</button>
-        <button class="period-btn" data-period="week" onclick="selectPeriod(this)">Тиждень</button>
-        <button class="period-btn" data-period="month" onclick="selectPeriod(this)">Місяць</button>
+      <!-- Period selector (admin only, hidden by default) -->
+      <div id="periodSelector" style="display:none; position:relative; margin-bottom:14px">
+        <button class="period-pill" onclick="togglePeriodDropdown()">
+          <span id="periodPillLabel">День</span>
+          <span style="font-size:0.7rem; opacity:0.6; margin-left:4px">▾</span>
+        </button>
+        <div class="period-dropdown" id="periodDropdown">
+          <button onclick="choosePeriod('day')">📅 День</button>
+          <button onclick="choosePeriod('week')">📆 Тиждень</button>
+          <button onclick="choosePeriod('month')">🗓 Місяць</button>
+        </div>
+      </div>
+
+      <!-- Day status toast -->
+      <div class="status-toast" id="dayStatusToast" style="display:none">
+        <span id="dayStatusText"></span>
+        <button onclick="this.parentElement.style.display='none'" class="toast-dismiss">✕</button>
       </div>
 
       <!-- Dynamic dashboard content -->
@@ -303,14 +405,13 @@
 
         <div style="margin-bottom:12px">
           <div class="card-label" style="margin-bottom:6px">Готівка в касі (zł)</div>
-          <input type="number" id="snapCash" inputmode="decimal" placeholder="необов'язково"
-            style="width:100%; background:var(--bg); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:11px 14px; color:var(--text); font-size:1rem; outline:none">
+          <div id="snapDenomGrid"></div>
         </div>
 
         <div style="margin-bottom:16px">
           <div class="card-label" style="margin-bottom:6px">Порції кави (шт)</div>
           <input type="number" id="snapCoffee" inputmode="numeric" placeholder="необов'язково"
-            style="width:100%; background:var(--bg); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:11px 14px; color:var(--text); font-size:1rem; outline:none">
+            style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:11px 14px; color:var(--text); font-size:1rem; outline:none">
         </div>
 
         <button onclick="saveSnapshot()"
@@ -353,7 +454,7 @@
         <!-- Date picker -->
         <div class="card" style="margin-bottom:20px">
           <div class="card-label">Дата</div>
-          <input type="date" id="exportDate" style="margin-top:8px; width:100%; background:var(--bg); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:10px 12px; color:var(--text); font-size:1rem; outline:none">
+          <input type="date" id="exportDate" style="margin-top:8px; width:100%; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--text); font-size:1rem; outline:none">
         </div>
 
         <!-- Generate button -->
@@ -381,16 +482,48 @@
     </div>
   </div>
 
-  <div class="bottom-tabs">
-    <button class="tab-btn active" onclick="switchTab('dash',this)"><span>📊</span>Дашборд</button>
-    <button class="tab-btn" id="enterTabBtn" onclick="switchTab('enter',this)"><span>➕</span>Внести</button>
-    <button class="tab-btn" id="exportTabBtn" onclick="switchTab('export',this)" style="display:none"><span>📥</span>Витяг</button>
-    <button class="tab-btn" onclick="switchTab('profile',this)"><span>👤</span>Профіль</button>
+  <!-- FAB -->
+  <div class="fab-container" id="fabContainer">
+    <div class="fab-menu" id="fabMenu">
+      <button class="fab-item" onclick="fabAction('enter')">
+        <span class="fab-item-label">Внести</span>
+        <span class="fab-item-icon">➕</span>
+      </button>
+      <button class="fab-item" onclick="fabAction('export')">
+        <span class="fab-item-label">Витяг</span>
+        <span class="fab-item-icon">📥</span>
+      </button>
+      <button class="fab-item" onclick="fabAction('profile')">
+        <span class="fab-item-label">Профіль</span>
+        <span class="fab-item-icon">👤</span>
+      </button>
+    </div>
+    <button class="fab-btn" id="fabBtn" onclick="toggleFab()">＋</button>
   </div>
 </div>
 
 <!-- TOAST -->
 <div class="toast" id="toast">✅ Збережено!</div>
+
+<!-- DRAWER OVERLAY -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="toggleDrawer()"></div>
+
+<!-- DRAWER -->
+<div class="drawer" id="drawer">
+  <div class="drawer-header">
+    <span class="drawer-title">☕ Cafe App</span>
+    <button onclick="toggleDrawer()" class="drawer-close">✕</button>
+  </div>
+  <nav class="drawer-nav">
+    <button class="drawer-item active" id="dItem-dash" onclick="drawerNav('dash')">📊 Дашборд</button>
+    <button class="drawer-item" id="dItem-enter" onclick="drawerNav('enter')">➕ Внести</button>
+    <button class="drawer-item" id="dItem-export" onclick="drawerNav('export')" style="display:none">📥 Витяг</button>
+    <button class="drawer-item" id="dItem-profile" onclick="drawerNav('profile')">👤 Профіль</button>
+  </nav>
+  <div class="drawer-footer" id="drawerUserInfo">
+    <div id="hDate" style="margin-bottom:4px"></div>
+  </div>
+</div>
 
 <script>
 const tg = window.Telegram?.WebApp;
@@ -443,16 +576,47 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function switchTab(name, btn) {
+// ── FAB ──────────────────────────────────────────────────────────────────────
+let fabOpen = false;
+function toggleFab() {
+  fabOpen = !fabOpen;
+  document.getElementById('fabBtn').classList.toggle('open', fabOpen);
+  document.getElementById('fabMenu').classList.toggle('open', fabOpen);
+}
+function fabAction(tab) {
+  toggleFab();
+  showTab(tab);
+}
+
+// ── DRAWER ───────────────────────────────────────────────────────────────────
+let drawerOpen = false;
+function toggleDrawer() {
+  drawerOpen = !drawerOpen;
+  document.getElementById('drawer').classList.toggle('open', drawerOpen);
+  document.getElementById('drawerOverlay').classList.toggle('open', drawerOpen);
+}
+function drawerNav(tab) {
+  toggleDrawer();
+  showTab(tab);
+  document.querySelectorAll('.drawer-item').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('dItem-' + tab);
+  if (btn) btn.classList.add('active');
+}
+
+// ── TAB NAVIGATION ───────────────────────────────────────────────────────────
+function showTab(tab) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
-  btn.classList.add('active');
-  if (name === 'enter') {
+  const pane = document.getElementById('tab-' + tab);
+  if (pane) pane.classList.add('active');
+  if (tab === 'enter') {
     loadEnterStatus();
     initDenomGrid('snap');
-    updateDenomUI('snap');
   }
+  if (tab === 'dash') loadDashboard(currentPeriod || 'day');
+}
+
+function switchTab(name, btn) {
+  showTab(name);
 }
 
 function showToast(msg) {
@@ -467,23 +631,49 @@ function isAdminUser() {
   return currentUser.role === 'admin' || currentUser.role === 'super_admin' || currentUser.id === 199897236;
 }
 
+// ── PERIOD DROPDOWN ──────────────────────────────────────────────────────────
+let periodDropdownOpen = false;
+function togglePeriodDropdown() {
+  periodDropdownOpen = !periodDropdownOpen;
+  document.getElementById('periodDropdown').classList.toggle('open', periodDropdownOpen);
+}
+function choosePeriod(period) {
+  periodDropdownOpen = false;
+  document.getElementById('periodDropdown').classList.remove('open');
+  const labels = { day: 'День', week: 'Тиждень', month: 'Місяць' };
+  document.getElementById('periodPillLabel').textContent = labels[period];
+  selectPeriod({dataset:{period}});
+}
+
 function selectPeriod(btn) {
-  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
   currentPeriod = btn.dataset.period;
   loadDashboard(currentPeriod);
+}
+
+// ── DAY STATUS TOAST ─────────────────────────────────────────────────────────
+function updateDayStatus(isFinalized, closedAt) {
+  const toast = document.getElementById('dayStatusToast');
+  const text = document.getElementById('dayStatusText');
+  if (!toast || !text) return;
+  toast.style.display = 'flex';
+  if (isFinalized) {
+    toast.classList.remove('warn');
+    const time = closedAt ? closedAt.slice(11, 16) : '';
+    text.textContent = '✅ День закрито' + (time ? ' о ' + time : '');
+  } else {
+    toast.classList.add('warn');
+    text.textContent = '🔴 День ще не закрито';
+  }
 }
 
 // ── DASHBOARD RENDERING ──────────────────────────────────────────────────────
 
 function showSkeletons() {
   document.getElementById('dashContent').innerHTML = `
-    <div class="cards">
-      <div class="card skeleton skeleton-card"></div>
-      <div class="card skeleton skeleton-card"></div>
-      <div class="card skeleton skeleton-card"></div>
-      <div class="card skeleton skeleton-card"></div>
-    </div>
+    <div class="skeleton skeleton-card" style="margin-bottom:10px"></div>
+    <div class="skeleton skeleton-card" style="margin-bottom:10px"></div>
+    <div class="skeleton skeleton-card" style="margin-bottom:10px"></div>
+    <div class="skeleton skeleton-card" style="margin-bottom:10px"></div>
     <div class="skeleton skeleton-row" style="margin-top:14px"></div>
     <div class="skeleton skeleton-row short"></div>
     <div class="skeleton skeleton-row"></div>
@@ -533,12 +723,7 @@ async function loadDashboard(period) {
 }
 
 function renderDayDashboard(s, container) {
-  const isFinalized = s.is_finalized;
-  const closedTime = s.closed_at ? s.closed_at.slice(11, 16) : '';
-  const bannerClass = isFinalized ? 'banner-closed' : 'banner-open';
-  const bannerText = isFinalized
-    ? '✅ День закрито' + (closedTime ? ' о ' + closedTime : '')
-    : '🔴 День ще не закрито';
+  updateDayStatus(s.is_finalized, s.closed_at);
 
   const cashIncome = s.cash_income ?? 0;
   const cardIncome = s.card_income ?? 0;
@@ -577,28 +762,32 @@ function renderDayDashboard(s, container) {
   }).join('') : '<div class="empty-msg">Зрізів ще немає</div>';
 
   container.innerHTML = `
-    <div id="dayStatus" class="status-banner ${bannerClass}">${bannerText}</div>
-
-    <div class="cards">
-      <div class="card">
-        <div class="card-icon">💵</div>
-        <div class="card-label">Виручка готівка</div>
-        <div class="card-val green">${fmt(cashIncome)}</div>
+    <div class="stat-card">
+      <div class="stat-icon-wrap"><span class="stat-icon">💵</span></div>
+      <div class="stat-body">
+        <div class="stat-label">Виручка готівка</div>
+        <div class="stat-value green" id="d-cash">${fmt(cashIncome)}</div>
       </div>
-      <div class="card">
-        <div class="card-icon">💳</div>
-        <div class="card-label">Виручка картка</div>
-        <div class="card-val blue">${fmt(cardIncome)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon-wrap"><span class="stat-icon">💳</span></div>
+      <div class="stat-body">
+        <div class="stat-label">Виручка картка</div>
+        <div class="stat-value blue" id="d-card">${fmt(cardIncome)}</div>
       </div>
-      <div class="card">
-        <div class="card-icon">☕</div>
-        <div class="card-label">Порцій кави</div>
-        <div class="card-val yellow">${coffeePortions} шт</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon-wrap"><span class="stat-icon">☕</span></div>
+      <div class="stat-body">
+        <div class="stat-label">Порцій кави</div>
+        <div class="stat-value orange" id="d-coffee">${coffeePortions} шт</div>
       </div>
-      <div class="card">
-        <div class="card-icon">🏦</div>
-        <div class="card-label">Каса</div>
-        <div class="card-val">${closingCash != null ? fmt(closingCash) : 'Не закрито'}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon-wrap"><span class="stat-icon">🏦</span></div>
+      <div class="stat-body">
+        <div class="stat-label">Каса</div>
+        <div class="stat-value" id="d-box">${closingCash != null ? fmt(closingCash) : 'Не закрито'}</div>
       </div>
     </div>
 
@@ -606,12 +795,12 @@ function renderDayDashboard(s, container) {
 
     <div class="section-title">Деталі сьогодні</div>
     <div class="breakdown">
-      <div class="brow"><span class="brow-label">💵 Виручка готівка</span><span class="brow-val pos">${fmt(cashIncome)}</span></div>
-      <div class="brow"><span class="brow-label">💳 Виручка картка</span><span class="brow-val pos">${fmt(cardIncome)}</span></div>
+      <div class="brow" id="b-ci"><span class="brow-label">💵 Виручка готівка</span><span class="brow-val pos">${fmt(cashIncome)}</span></div>
+      <div class="brow" id="b-cr"><span class="brow-label">💳 Виручка картка</span><span class="brow-val pos">${fmt(cardIncome)}</span></div>
       <div class="brow"><span class="brow-label">🏦 Розмінка (відкриття)</span><span class="brow-val">${fmt(openingCash)}</span></div>
-      ${adminWit ? `<div class="brow"><span class="brow-label">📤 Адмін виплати</span><span class="brow-val neg">${fmt(adminWit)}</span></div>` : ''}
-      ${adminDep ? `<div class="brow"><span class="brow-label">📥 Адмін вплати</span><span class="brow-val pos">${fmt(adminDep)}</span></div>` : ''}
-      ${expenses ? `<div class="brow"><span class="brow-label">🧾 Витрати</span><span class="brow-val neg">${fmt(expenses)}</span></div>` : ''}
+      ${adminWit ? `<div class="brow" id="b-wit"><span class="brow-label">📤 Адмін виплати</span><span class="brow-val neg">${fmt(adminWit)}</span></div>` : ''}
+      ${adminDep ? `<div class="brow" id="b-dep"><span class="brow-label">📥 Адмін вплати</span><span class="brow-val pos">${fmt(adminDep)}</span></div>` : ''}
+      ${expenses ? `<div class="brow" id="b-exp"><span class="brow-label">🧾 Витрати</span><span class="brow-val neg">${fmt(expenses)}</span></div>` : ''}
     </div>
 
     <div class="section-title">📸 Зрізи за день</div>
@@ -638,7 +827,7 @@ function renderAnalytics(data, container) {
       </div>
       <div class="total-card">
         <div class="total-label">☕ Порції</div>
-        <div class="total-val yellow">${totals.total_coffee || 0}</div>
+        <div class="total-val orange">${totals.total_coffee || 0}</div>
       </div>
     </div>`;
 
@@ -729,13 +918,21 @@ async function init() {
       document.getElementById('hRole').textContent = roleLabel;
       buildProfile(user, data.role, data.modules || {});
 
-      // Show period toggle + export tab for admins
+      // Show period toggle + export drawer item for admins
       if (isAdminUser()) {
-        document.getElementById('periodTabs').style.display = 'flex';
-        document.getElementById('exportTabBtn').style.display = 'flex';
+        document.getElementById('periodSelector').style.display = 'block';
+        const exportItem = document.getElementById('dItem-export');
+        if (exportItem) exportItem.style.display = '';
         // Set default date for export
         const expDate = document.getElementById('exportDate');
         if (expDate) expDate.value = new Date().toISOString().slice(0,10);
+      }
+
+      // Populate drawer user info
+      const drawerUserInfo = document.getElementById('drawerUserInfo');
+      if (drawerUserInfo) {
+        const name = (user.first_name||'') + (user.last_name?' '+user.last_name:'');
+        drawerUserInfo.innerHTML = `<div style="font-weight:600;color:var(--text);margin-bottom:2px">${name || 'Без імені'}</div><div>${roleLabel}</div>`;
       }
 
       show('appScreen');
@@ -821,76 +1018,79 @@ init();
     // ── ENTER TAB ────────────────────────────────────────────────────────────────
 
     const DENOMINATIONS = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+    const _dc = {}; // denomination counts: _dc['snap'][500] = 3
 
-    // State for two independent denom calculators: 'snap' and 'close'
-    const denomState = {
-      snap: {},
-      close: {}
-    };
-
-    function initDenomGrid(prefix) {
-      const grid = document.getElementById(prefix + 'DenomGrid');
+    function initDenomGrid(which) {
+      const grid = document.getElementById(which + 'DenomGrid');
       if (!grid) return;
-      grid.innerHTML = '';
+      _dc[which] = {};
+      DENOMINATIONS.forEach(d => { _dc[which][d] = 0; });
+      grid.innerHTML = DENOMINATIONS.map(d => `
+        <div class="denom-row">
+          <div class="denom-name">${d} zł</div>
+          <div class="denom-controls">
+            <button class="denom-pm" onclick="adjDenom('${which}',${d},-1)">−</button>
+            <input class="denom-qty" type="number" inputmode="numeric" min="0"
+                   id="dq-${which}-${d}" value="0"
+                   onchange="setDenomVal('${which}',${d},this.value)"
+                   onfocus="this.select()">
+            <button class="denom-pm" onclick="adjDenom('${which}',${d},1)">+</button>
+          </div>
+          <div class="denom-sub" id="ds-${which}-${d}">= 0 zł</div>
+        </div>
+      `).join('') + `
+        <div class="denom-total-row">
+          <span>Разом:</span>
+          <span class="denom-total-val" id="${which}DenomTotal">0 zł</span>
+        </div>`;
+    }
+
+    function adjDenom(which, d, delta) {
+      if (!_dc[which]) _dc[which] = {};
+      _dc[which][d] = Math.max(0, (_dc[which][d] || 0) + delta);
+      _syncDenom(which, d);
+    }
+
+    function setDenomVal(which, d, val) {
+      if (!_dc[which]) _dc[which] = {};
+      _dc[which][d] = Math.max(0, parseInt(val) || 0);
+      _syncDenom(which, d);
+    }
+
+    function _syncDenom(which, d) {
+      const qty = _dc[which][d] || 0;
+      const inp = document.getElementById(`dq-${which}-${d}`);
+      if (inp) inp.value = qty;
+      const sub = document.getElementById(`ds-${which}-${d}`);
+      if (sub) sub.textContent = `= ${d * qty} zł`;
+      // update total
+      const total = getDenomTotal(which);
+      const tel = document.getElementById(which + 'DenomTotal');
+      if (tel) tel.textContent = total + ' zł';
+    }
+
+    function getDenomTotal(which) {
+      if (!_dc[which]) return 0;
+      return DENOMINATIONS.reduce((s, d) => s + d * (_dc[which][d] || 0), 0);
+    }
+
+    function resetDenom(which) {
+      if (!_dc[which]) return;
       DENOMINATIONS.forEach(d => {
-        const btn = document.createElement('button');
-        btn.className = 'denom-btn';
-        btn.id = `${prefix}Denom${d}`;
-        btn.onclick = () => incrementDenom(prefix, d);
-        btn.innerHTML = `<span>${d} zł</span><span class="denom-count" id="${prefix}Count${d}">× 0</span>`;
-        grid.appendChild(btn);
+        _dc[which][d] = 0;
+        const inp = document.getElementById(`dq-${which}-${d}`);
+        if (inp) inp.value = 0;
+        const sub = document.getElementById(`ds-${which}-${d}`);
+        if (sub) sub.textContent = `= 0 zł`;
       });
-    }
-
-    function incrementDenom(prefix, denom) {
-      if (!denomState[prefix]) denomState[prefix] = {};
-      denomState[prefix][denom] = (denomState[prefix][denom] || 0) + 1;
-      updateDenomUI(prefix);
-    }
-
-    function resetDenom(prefix) {
-      denomState[prefix] = {};
-      updateDenomUI(prefix);
-    }
-
-    function getDenomTotal(prefix) {
-      const state = denomState[prefix] || {};
-      return DENOMINATIONS.reduce((sum, d) => sum + d * (state[d] || 0), 0);
-    }
-
-    function updateDenomUI(prefix) {
-      const state = denomState[prefix] || {};
-      let total = 0;
-      const breakdownLines = [];
-
-      DENOMINATIONS.forEach(d => {
-        const cnt = state[d] || 0;
-        const btn = document.getElementById(`${prefix}Denom${d}`);
-        const countEl = document.getElementById(`${prefix}Count${d}`);
-        if (btn) btn.className = 'denom-btn' + (cnt > 0 ? ' has-count' : '');
-        if (countEl) countEl.textContent = `× ${cnt}`;
-        if (cnt > 0) {
-          total += d * cnt;
-          breakdownLines.push(`${d} × ${cnt} = ${d * cnt} zł`);
-        }
-      });
-
-      const totalEl = document.getElementById(prefix + 'DenomTotal');
-      if (totalEl) totalEl.textContent = `Разом: ${total} zł`;
-
-      const bdEl = document.getElementById(prefix + 'DenomBreakdown');
-      if (bdEl) {
-        bdEl.innerHTML = breakdownLines.map(l =>
-          `<div class="denom-row"><span>${l.split('=')[0].trim()}</span><span>${l.split('=')[1].trim()}</span></div>`
-        ).join('');
-      }
+      const tel = document.getElementById(which + 'DenomTotal');
+      if (tel) tel.textContent = '0 zł';
     }
 
     // Snapshot section
     async function saveSnapshot() {
-      const cashInput = document.getElementById('snapCash');
       const coffeeInput = document.getElementById('snapCoffee');
-      const cashVal = cashInput.value.trim();
+      const cashVal = getDenomTotal('snap');
       const coffeeVal = coffeeInput.value.trim();
 
       // At least one field must be filled
@@ -900,7 +1100,6 @@ init();
       }
 
       // Save previous values for rollback
-      const prevCash = cashVal;
       const prevCoffee = coffeeVal;
 
       const now = new Date();
@@ -909,13 +1108,13 @@ init();
         init_data: tg?.initData || '',
         date: now.toISOString().slice(0, 10),
         time: now.toTimeString().slice(0, 5),
-        cash_amount: cashVal ? parseFloat(cashVal) : null,
+        cash_amount: cashVal ? cashVal : null,
         coffee_portions: coffeeVal ? parseInt(coffeeVal) : null,
       };
 
       // Optimistic UI: show saving toast and clear form immediately
       showToast('💾 Збереження...');
-      cashInput.value = '';
+      resetDenom('snap');
       coffeeInput.value = '';
 
       try {
@@ -932,13 +1131,11 @@ init();
           loadDashboard(currentPeriod || 'day');
         } else {
           // Restore on error
-          cashInput.value = prevCash;
           coffeeInput.value = prevCoffee;
           showToast('❌ Помилка: ' + (data.error || 'невідома'));
         }
       } catch (e) {
         // Restore on error
-        cashInput.value = prevCash;
         coffeeInput.value = prevCoffee;
         showToast('❌ Помилка з\'єднання');
       }
@@ -1002,9 +1199,7 @@ init();
             <input type="number" class="num-input" id="closeCashAmount" placeholder="0.00" min="0" step="0.01" inputmode="decimal" value="${closeDayData.closing_cash??''}">
           </div>
           <div id="closeBillsInput" style="display:${closeDayCashMode==='bills'?'block':'none'}">
-            <div id="closeDenomGrid" class="denom-grid"></div>
-            <div class="denom-total" id="closeDenomTotal">Разом: 0 zł</div>
-            <div class="denom-breakdown" id="closeDenomBreakdown"></div>
+            <div id="closeDenomGrid"></div>
             <button class="action-btn btn-secondary" style="margin-bottom:14px;font-size:0.82rem;padding:9px" onclick="resetDenom('close')">🗑 Скинути</button>
           </div>
           <button class="action-btn btn-primary" onclick="closeDayNext1()">Далі →</button>
@@ -1026,7 +1221,6 @@ init();
       } else if (closeDayStep === 4) {
         const dateStr = today();
         const closing = closeDayData.closing_cash ?? 0;
-        // We don't have opening here, will be computed server-side
         const portions = closeDayData.coffee_portions;
         const card = closeDayData.card_income;
         content = `
@@ -1050,7 +1244,6 @@ init();
       // Re-init denom grid if on step 1 and bills mode
       if (closeDayStep === 1) {
         initDenomGrid('close');
-        updateDenomUI('close');
         // Add event listener for mode toggle buttons
         const modeSum = document.getElementById('closeModeSum');
         const modeBills = document.getElementById('closeModeBills');
