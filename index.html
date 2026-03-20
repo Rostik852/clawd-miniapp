@@ -920,8 +920,11 @@ function renderAnalytics(data, container) {
   // Rows table
   const rowsHtml = rows.map(r => {
     const statusIcon = r.is_finalized ? '✅' : '🔴';
+    const editBtn = isAdminUser() ?
+      `<button onclick="openEditDay('${r.date}', ${JSON.stringify({opening_cash: r.opening_cash, closing_cash: r.closing_cash, coffee_portions: r.coffee_portions, card_income: r.card_income})})"
+        style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:0.85rem;padding:2px 6px">✏️</button>` : '';
     return `<div class="brow">
-      <span class="brow-label">${statusIcon} ${r.date}</span>
+      <span class="brow-label">${statusIcon} ${r.date}${editBtn}</span>
       <span class="brow-val pos">${fmt(r.cash_income)}${r.card_income ? ' + ' + fmt(r.card_income) : ''}</span>
     </div>`;
   }).join('');
@@ -1246,8 +1249,9 @@ init();
         const data = await res.json();
         if (data.ok) {
           showToast('✅ Snapshot збережено!');
-          // Silently refresh dashboard in background
-          lastFetchTime = 0; // invalidate cache
+          // Refresh dashboard immediately
+          cachedSummary = null; // invalidate cache
+          lastFetchTime = 0;
           loadDashboard(currentPeriod || 'day');
         } else {
           // Restore on error
@@ -1456,7 +1460,8 @@ init();
         const data = await resp.json();
         if (data.ok) {
           showToast('✅ День закрито!');
-          lastFetchTime = 0; // invalidate cache
+          cachedSummary = null; // invalidate cache
+          lastFetchTime = 0;
           loadDashboard('day');
           loadEnterStatus();
         } else {
@@ -1491,6 +1496,12 @@ init();
         }
         // Render close day wizard or finalized state
         renderCloseDay(data);
+        // Also refresh dashboard cards silently if on dashboard tab
+        cachedSummary = data;
+        lastFetchTime = Date.now();
+        if (document.getElementById('tab-dash').classList.contains('active')) {
+          renderDayDashboard(data);
+        }
       } catch(e) {
         console.error('loadEnterStatus:', e);
       }
@@ -1501,6 +1512,103 @@ init();
       const body = document.getElementById('closeDayBody');
       if (body) body.innerHTML = '<div class="empty-msg">Перейдіть на вкладку Внести для завантаження</div>';
     });
-</script>
-</body>
+
+    // ===== Edit Day Functions =====
+    let editingDate = null;
+
+    function openEditDay(dateStr, currentData) {
+      editingDate = dateStr;
+      document.getElementById('editDayDate').textContent = dateStr;
+      document.getElementById('editOpeningCash').value = currentData?.opening_cash ?? '';
+      document.getElementById('editClosingCash').value = currentData?.closing_cash ?? '';
+      document.getElementById('editCoffee').value = currentData?.coffee_portions ?? '';
+      document.getElementById('editCardIncome').value = currentData?.card_income ?? '';
+      document.getElementById('editDayBackdrop').classList.add('open');
+      document.getElementById('editDayModal').classList.add('open');
+    }
+
+    function closeEditDay() {
+      editingDate = null;
+      document.getElementById('editDayBackdrop').classList.remove('open');
+      document.getElementById('editDayModal').classList.remove('open');
+    }
+
+    async function saveEditDay() {
+      if (!editingDate || !currentUser) return;
+
+      const payload = {
+        user_id: currentUser.id,
+        init_data: tg?.initData || '',
+        date: editingDate,
+      };
+
+      const opening = document.getElementById('editOpeningCash').value;
+      const closing = document.getElementById('editClosingCash').value;
+      const coffee = document.getElementById('editCoffee').value;
+      const card = document.getElementById('editCardIncome').value;
+
+      if (opening !== '') payload.opening_cash = parseFloat(opening);
+      if (closing !== '') payload.closing_cash = parseFloat(closing);
+      if (coffee !== '') payload.coffee_portions = parseInt(coffee);
+      if (card !== '') payload.card_income = parseFloat(card);
+
+      try {
+        const res = await fetch('/api/edit_day', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.ok) {
+          closeEditDay();
+          showToast('✅ Дані збережено');
+          cachedSummary = null;
+          lastFetchTime = 0;
+          loadDashboard(currentPeriod || 'day');
+        } else {
+          showToast('❌ ' + (data.error || 'Помилка'));
+        }
+      } catch(e) {
+        showToast("❌ Помилка з'єднання");
+      }
+    }
+
+    </script>
+
+    <!-- Edit Day Modal -->
+    <div class="backdrop" id="editDayBackdrop" onclick="closeEditDay()"></div>
+    <div class="modal" id="editDayModal">
+      <div class="modal-title">✏️ Редагувати день <span id="editDayDate"></span></div>
+
+      <div style="margin-bottom:10px">
+        <div class="card-label" style="margin-bottom:4px">Розмінка (opening cash, zł)</div>
+        <input type="number" id="editOpeningCash" inputmode="decimal" placeholder="0.00"
+          style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.95rem;outline:none">
+      </div>
+
+      <div style="margin-bottom:10px">
+        <div class="card-label" style="margin-bottom:4px">Закриття каси (closing cash, zł)</div>
+        <input type="number" id="editClosingCash" inputmode="decimal" placeholder="0.00"
+          style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.95rem;outline:none">
+      </div>
+
+      <div style="margin-bottom:10px">
+        <div class="card-label" style="margin-bottom:4px">Порції кави (шт)</div>
+        <input type="number" id="editCoffee" inputmode="numeric" placeholder="0"
+          style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.95rem;outline:none">
+      </div>
+
+      <div style="margin-bottom:16px">
+        <div class="card-label" style="margin-bottom:4px">Картка (zł)</div>
+        <input type="number" id="editCardIncome" inputmode="decimal" placeholder="0.00"
+          style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.95rem;outline:none">
+      </div>
+
+      <div style="display:flex;gap:10px">
+        <button onclick="closeEditDay()" style="flex:1;padding:13px;background:var(--bg2);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--hint);cursor:pointer">Скасувати</button>
+        <button onclick="saveEditDay()" style="flex:2;padding:13px;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;font-weight:600;cursor:pointer">💾 Зберегти</button>
+      </div>
+    </div>
+
+  </body>
 </html>
