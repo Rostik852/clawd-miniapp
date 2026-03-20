@@ -744,8 +744,8 @@ async function loadDashboard(period) {
   period = period || 'day';
   const container = document.getElementById('dashContent');
 
-  // Use cache if fresh (<30s) and it's a day view
-  if (period === 'day' && cachedSummary && (Date.now() - lastFetchTime < 30000)) {
+  // Use cache if fresh (<15s) and it's a day view
+  if (period === 'day' && cachedSummary && (Date.now() - lastFetchTime < 15000)) {
     renderDayDashboard(cachedSummary, container);
     // Refresh in background silently
     fetch(`${API}/api/data?type=summary&user_id=${currentUser.id}`)
@@ -921,8 +921,11 @@ function renderAnalytics(data, container) {
   const rowsHtml = rows.map(r => {
     const statusIcon = r.is_finalized ? '✅' : '🔴';
     const editBtn = isAdminUser() ?
-      `<button onclick="openEditDay('${r.date}', ${JSON.stringify({opening_cash: r.opening_cash, closing_cash: r.closing_cash, coffee_portions: r.coffee_portions, card_income: r.card_income})})"
-        style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:0.85rem;padding:2px 6px">✏️</button>` : '';
+      `<button onclick="openEditDayById('${r.date}')"
+        style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:0.85rem;padding:2px 6px" title="Редагувати">✏️</button>` : '';
+    // Store row data for edit lookup
+    window._analyticsRows = window._analyticsRows || {};
+    window._analyticsRows[r.date] = r;
     return `<div class="brow">
       <span class="brow-label">${statusIcon} ${r.date}${editBtn}</span>
       <span class="brow-val pos">${fmt(r.cash_income)}${r.card_income ? ' + ' + fmt(r.card_income) : ''}</span>
@@ -1515,6 +1518,11 @@ init();
 
     // ===== Edit Day Functions =====
     let editingDate = null;
+
+    function openEditDayById(dateStr) {
+      const r = (window._analyticsRows || {})[dateStr] || {};
+      openEditDay(dateStr, r);
+    }
 
     function openEditDay(dateStr, currentData) {
       editingDate = dateStr;
