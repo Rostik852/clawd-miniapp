@@ -4,7 +4,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 from datetime import datetime, timezone
 
-from _db import get_conn, ensure_tables, get_user, verify_tg_signature, add_snapshot, ADMIN_ID
+from _db import get_conn, ensure_tables, get_user, verify_tg_signature, add_snapshot, delete_snapshot, is_admin, ADMIN_ID
 from _cors import add_cors, handle_options
 
 
@@ -80,6 +80,33 @@ class handler(BaseHTTPRequestHandler):
 
         except Exception as e:
             _json(self, 500, {'error': str(e)})
+
+    def do_DELETE(self):
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+        snap_id = params.get('id', [None])[0]
+        user_id_str = params.get('user_id', [None])[0]
+
+        if not snap_id or not user_id_str:
+            _json(self, 400, {'error': 'id and user_id required'})
+            return
+
+        conn = get_conn()
+        try:
+            ensure_tables(conn)
+            uid = int(user_id_str)
+            user = get_user(conn, uid)
+            if not user or not user.get('is_approved'):
+                _json(self, 403, {'error': 'forbidden'})
+                return
+            is_adm = is_admin(conn, uid)
+            delete_snapshot(conn, int(snap_id), None if is_adm else uid)
+            _json(self, 200, {'ok': True})
+        except Exception as e:
+            _json(self, 500, {'error': str(e)})
+        finally:
+            conn.close()
 
     def log_message(self, fmt, *args):
         pass

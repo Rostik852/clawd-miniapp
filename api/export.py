@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import date as date_cls
 
-from _db import get_conn, ensure_tables, is_admin, get_period_summary
+from _db import get_conn, ensure_tables, is_admin, get_user, get_period_summary
 from _cors import add_cors, handle_options
 
 CURRENCY = "zł"
@@ -180,7 +180,26 @@ class handler(BaseHTTPRequestHandler):
         try:
             ensure_tables(conn)
 
-            if not user_id_str or not is_admin(conn, int(user_id_str)):
+            if not user_id_str:
+                self.send_response(403)
+                self.send_header('Content-Type', 'application/json')
+                add_cors(self)
+                self.end_headers()
+                self.wfile.write(b'{"error":"forbidden"}')
+                return
+
+            uid = int(user_id_str)
+            # Check role — only admin/chef can access
+            user = get_user(conn, uid)
+            if user and user.get('role') in ('barista', 'young'):
+                self.send_response(403)
+                self.send_header('Content-Type', 'application/json')
+                add_cors(self)
+                self.end_headers()
+                self.wfile.write(b'{"error":"forbidden"}')
+                return
+
+            if not is_admin(conn, uid):
                 self.send_response(403)
                 self.send_header('Content-Type', 'application/json')
                 add_cors(self)

@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import json
 
-from _db import get_conn, ensure_tables, is_admin, get_period_summary
+from _db import get_conn, ensure_tables, is_admin, get_user, get_period_summary
 from _cors import add_cors, handle_options
 from datetime import date as date_cls
 
@@ -45,6 +45,12 @@ class handler(BaseHTTPRequestHandler):
                 user_id = int(user_id_str)
             except ValueError:
                 self._send_json(400, {'error': 'invalid user_id'})
+                return
+
+            # Check role — only admin/chef can access
+            user = get_user(conn, user_id)
+            if user and user.get('role') in ('barista', 'young'):
+                self._send_json(403, {'error': 'forbidden'})
                 return
 
             if not is_admin(conn, user_id):

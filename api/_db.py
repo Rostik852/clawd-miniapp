@@ -317,6 +317,54 @@ def get_snapshots(conn, date_str):
         return [dict(r) for r in cur.fetchall()]
 
 
+def delete_snapshot(conn, snapshot_id, user_id=None):
+    """Delete a snapshot by ID. If user_id provided, verify ownership (admins can delete any)."""
+    with conn.cursor() as cur:
+        if user_id and int(user_id) != ADMIN_ID:
+            cur.execute("DELETE FROM snapshots WHERE id = %s AND user_id = %s", (snapshot_id, user_id))
+        else:
+            cur.execute("DELETE FROM snapshots WHERE id = %s", (snapshot_id,))
+    conn.commit()
+
+
+def update_snapshot(conn, snapshot_id, cash_amount=None, coffee_portions=None, notes=None):
+    """Update a snapshot's values."""
+    fields = []
+    vals = []
+    if cash_amount is not None:
+        fields.append("cash_amount = %s"); vals.append(cash_amount)
+    if coffee_portions is not None:
+        fields.append("coffee_portions = %s"); vals.append(coffee_portions)
+    if notes is not None:
+        fields.append("notes = %s"); vals.append(notes)
+    if not fields:
+        return
+    vals.append(snapshot_id)
+    with conn.cursor() as cur:
+        cur.execute(f"UPDATE snapshots SET {', '.join(fields)} WHERE id = %s", vals)
+    conn.commit()
+
+
+def delete_daily_session(conn, date_str):
+    """Delete a daily session (admin only)."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM daily_session WHERE date = %s", (date_str,))
+    conn.commit()
+
+
+def update_daily_session_field(conn, date_str, **fields):
+    """Update specific fields of a daily session."""
+    allowed = {'opening_cash', 'closing_cash', 'coffee_portions', 'card_income', 'is_finalized', 'notes'}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return
+    set_clause = ', '.join(f"{k} = %s" for k in updates)
+    vals = list(updates.values()) + [date_str]
+    with conn.cursor() as cur:
+        cur.execute(f"UPDATE daily_session SET {set_clause} WHERE date = %s", vals)
+    conn.commit()
+
+
 def get_daily_summary(conn, date_str):
     """
     Returns complete daily summary dict:

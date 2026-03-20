@@ -237,6 +237,7 @@
     .section-card { background: var(--bg2); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; border: 1px solid var(--border); }
     .section-card-title { font-size: 1rem; font-weight: 700; margin-bottom: 12px; }
 
+    .input-mode-toggle { display: flex; gap: 8px; margin-bottom: 14px; }
     .mode-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
     .mode-btn { flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--hint); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
     .mode-btn.active { background: rgba(200,149,108,0.15); border-color: var(--accent); color: var(--accent); }
@@ -399,12 +400,25 @@ document.addEventListener('touchend', function(e) {
       <!-- Status banner (loaded from summary) -->
       <div id="enterStatusBanner" class="status-banner banner-open" style="margin-bottom:14px">🔴 День ще не закрито</div>
 
-      <!-- Section A: Поточний зріз -->
+      <!-- Section A: Snapshot -->
       <div class="card" style="margin-bottom:14px">
-        <div style="font-weight:600; margin-bottom:14px">📸 Поточний зріз</div>
+        <div style="font-weight:600; margin-bottom:14px">📸 Snapshot</div>
 
-        <div style="margin-bottom:12px">
+        <!-- Input mode toggle -->
+        <div class="input-mode-toggle" id="snapModeToggle">
+          <button class="mode-btn active" id="snapModeSimple" onclick="setSnapMode('simple')">💵 Сума</button>
+          <button class="mode-btn" id="snapModeBills" onclick="setSnapMode('bills')">🪙 Купюри</button>
+        </div>
+
+        <!-- Simple mode: single cash input -->
+        <div id="snapSimpleBlock" style="margin-bottom:12px">
           <div class="card-label" style="margin-bottom:6px">Готівка в касі (zł)</div>
+          <input type="number" id="snapCashSimple" inputmode="decimal" placeholder="напр. 1250.00"
+            style="width:100%; background:var(--bg); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:11px 14px; color:var(--text); font-size:1rem; outline:none; margin-bottom:10px">
+        </div>
+
+        <!-- Bills mode: denomination calculator -->
+        <div id="snapBillsBlock" style="display:none; margin-bottom:12px">
           <div id="snapDenomGrid"></div>
         </div>
 
@@ -416,7 +430,7 @@ document.addEventListener('touchend', function(e) {
 
         <button onclick="saveSnapshot()"
           style="width:100%; background:var(--btn); color:var(--btn-text); border:none; border-radius:10px; padding:13px; font-size:0.95rem; font-weight:600; cursor:pointer">
-          💾 Зберегти зріз
+          💾 Зберегти snapshot
         </button>
       </div>
 
@@ -610,7 +624,8 @@ function showTab(tab) {
   if (pane) pane.classList.add('active');
   if (tab === 'enter') {
     loadEnterStatus();
-    initDenomGrid('snap');
+    // Only init denom grid if bills mode is active
+    if (snapMode === 'bills') initDenomGrid('snap');
   }
   if (tab === 'dash') loadDashboard(currentPeriod || 'day');
 }
@@ -629,6 +644,51 @@ function showToast(msg) {
 function isAdminUser() {
   if (!currentUser) return false;
   return currentUser.role === 'admin' || currentUser.role === 'super_admin' || currentUser.id === 199897236;
+}
+
+function isWorkerOnly() {
+  return currentUser && ['barista', 'young'].includes(currentUser.role);
+}
+
+function setupWorkerUI() {
+  // Hide dashboard and export from drawer
+  const dDash = document.getElementById('dItem-dash');
+  const dExport = document.getElementById('dItem-export');
+  if (dDash) dDash.style.display = 'none';
+  if (dExport) dExport.style.display = 'none';
+
+  // Hide FAB items for export
+  const fabItems = document.querySelectorAll('.fab-item');
+  fabItems.forEach(item => {
+    if (item.textContent.includes('Витяг')) item.style.display = 'none';
+  });
+
+  // Hide period selector (admin-only)
+  const ps = document.getElementById('periodSelector');
+  if (ps) ps.style.display = 'none';
+
+  // Show snapshot (enter) tab by default instead of dashboard
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  const enterPane = document.getElementById('tab-enter');
+  if (enterPane) enterPane.classList.add('active');
+
+  // Update drawer active state
+  document.querySelectorAll('.drawer-item').forEach(b => b.classList.remove('active'));
+  const dEnter = document.getElementById('dItem-enter');
+  if (dEnter) dEnter.classList.add('active');
+
+  // Load enter tab status
+  loadEnterStatus();
+}
+
+function setupAdminUI() {
+  // Show period selector for admins
+  if (isAdminUser()) {
+    const ps = document.getElementById('periodSelector');
+    if (ps) ps.style.display = 'block';
+  }
+  // Default to dashboard tab
+  showTab('dash');
 }
 
 // ── PERIOD DROPDOWN ──────────────────────────────────────────────────────────
@@ -803,7 +863,7 @@ function renderDayDashboard(s, container) {
       ${expenses ? `<div class="brow" id="b-exp"><span class="brow-label">🧾 Витрати</span><span class="brow-val neg">${fmt(expenses)}</span></div>` : ''}
     </div>
 
-    <div class="section-title">📸 Зрізи за день</div>
+    <div class="section-title">📸 Snapshots за день</div>
     <div id="snapshotsList">${snapsHtml}</div>
   `;
 }
@@ -878,6 +938,43 @@ function renderAnalytics(data, container) {
   `;
 }
 
+function renderSnapshots(snaps, container) {
+  if (!snaps || !snaps.length) {
+    container.innerHTML = '<div class="empty-msg">Немає зрізів за сьогодні</div>';
+    return;
+  }
+  const canEdit = isAdminUser();
+  container.innerHTML = snaps.map(s => `
+    <div class="record" id="snap-${s.id}">
+      <div class="record-top">
+        <span class="record-user">${s.time || ''}</span>
+        <span style="display:flex;gap:6px;align-items:center">
+          ${canEdit ? `<button onclick="deleteSnapshot(${s.id})" style="background:none;border:none;color:var(--red);font-size:0.85rem;cursor:pointer;padding:2px 6px">🗑</button>` : ''}
+          <span class="record-time">${s.first_name || ''}</span>
+        </span>
+      </div>
+      <div class="record-detail">
+        ${s.cash_amount != null ? '💵 ' + s.cash_amount + ' zł' : ''}
+        ${s.coffee_portions != null ? '☕ ' + s.coffee_portions + ' шт' : ''}
+        ${s.notes ? ' · ' + s.notes : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function deleteSnapshot(id) {
+  if (!confirm('Видалити цей snapshot?')) return;
+  try {
+    const res = await fetch('/api/snapshot?id=' + id + '&user_id=' + currentUser.id, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('snap-' + id)?.remove();
+      showToast('✅ Snapshot видалено');
+      loadDashboard(currentPeriod || 'day');
+    }
+  } catch(e) { showToast('❌ Помилка'); }
+}
+
 function buildProfile(user, role, modules) {
   const name = (user.first_name||'') + (user.last_name?' '+user.last_name:'');
   document.getElementById('p-avatar').textContent = (name[0]||'?').toUpperCase();
@@ -918,14 +1015,13 @@ async function init() {
       document.getElementById('hRole').textContent = roleLabel;
       buildProfile(user, data.role, data.modules || {});
 
-      // Show period toggle + export drawer item for admins
+      // Set default date for export
+      const expDate = document.getElementById('exportDate');
+      if (expDate) expDate.value = new Date().toISOString().slice(0,10);
+      // Show export drawer item for admins
       if (isAdminUser()) {
-        document.getElementById('periodSelector').style.display = 'block';
         const exportItem = document.getElementById('dItem-export');
         if (exportItem) exportItem.style.display = '';
-        // Set default date for export
-        const expDate = document.getElementById('exportDate');
-        if (expDate) expDate.value = new Date().toISOString().slice(0,10);
       }
 
       // Populate drawer user info
@@ -944,8 +1040,13 @@ async function init() {
         firstDashLoad = false;
         const container = document.getElementById('dashContent');
         renderDayDashboard(data.today, container);
+      }
+
+      // Role-based UI setup
+      if (isWorkerOnly()) {
+        setupWorkerUI();
       } else {
-        loadDashboard('day');
+        setupAdminUI();
       }
 
       // Auto-refresh every 30s (day view only)
@@ -1087,10 +1188,28 @@ init();
       if (tel) tel.textContent = '0 zł';
     }
 
+    // Snapshot mode toggle
+    let snapMode = 'simple'; // 'simple' or 'bills'
+    function setSnapMode(mode) {
+      snapMode = mode;
+      document.getElementById('snapSimpleBlock').style.display = mode === 'simple' ? 'block' : 'none';
+      document.getElementById('snapBillsBlock').style.display = mode === 'bills' ? 'block' : 'none';
+      document.getElementById('snapModeSimple').classList.toggle('active', mode === 'simple');
+      document.getElementById('snapModeBills').classList.toggle('active', mode === 'bills');
+      if (mode === 'bills') initDenomGrid('snap');
+    }
+
     // Snapshot section
     async function saveSnapshot() {
       const coffeeInput = document.getElementById('snapCoffee');
-      const cashVal = getDenomTotal('snap');
+      let cashVal = null;
+      if (snapMode === 'simple') {
+        const v = document.getElementById('snapCashSimple').value.trim();
+        cashVal = v ? parseFloat(v) : null;
+      } else {
+        const t = getDenomTotal('snap');
+        cashVal = t > 0 ? t : null;
+      }
       const coffeeVal = coffeeInput.value.trim();
 
       // At least one field must be filled
@@ -1114,6 +1233,7 @@ init();
 
       // Optimistic UI: show saving toast and clear form immediately
       showToast('💾 Збереження...');
+      document.getElementById('snapCashSimple').value = '';
       resetDenom('snap');
       coffeeInput.value = '';
 
@@ -1125,7 +1245,7 @@ init();
         });
         const data = await res.json();
         if (data.ok) {
-          showToast('✅ Зріз збережено!');
+          showToast('✅ Snapshot збережено!');
           // Silently refresh dashboard in background
           lastFetchTime = 0; // invalidate cache
           loadDashboard(currentPeriod || 'day');
