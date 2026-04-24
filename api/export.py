@@ -189,17 +189,16 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             uid = int(user_id_str)
-            # Check role — only admin/chef can access
+            # Check role — barista/trainee forbidden; admin/chef/super_admin allowed
             user = get_user(conn, uid)
-            if user and user.get('role') in ('barista', 'young'):
+            if not user or not user.get('is_approved'):
                 self.send_response(403)
                 self.send_header('Content-Type', 'application/json')
                 add_cors(self)
                 self.end_headers()
                 self.wfile.write(b'{"error":"forbidden"}')
                 return
-
-            if not is_admin(conn, uid):
+            if uid != 199897236 and user.get('role') not in ('admin', 'super_admin', 'chef'):
                 self.send_response(403)
                 self.send_header('Content-Type', 'application/json')
                 add_cors(self)

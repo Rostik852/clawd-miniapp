@@ -47,13 +47,16 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(400, {'error': 'invalid user_id'})
                 return
 
-            # Check role — only admin/chef can access
+            # Check role — barista/trainee forbidden; admin/chef allowed
             user = get_user(conn, user_id)
-            if user and user.get('role') in ('barista', 'young'):
+            if not user or not user.get('is_approved'):
                 self._send_json(403, {'error': 'forbidden'})
                 return
-
-            if not is_admin(conn, user_id):
+            if user.get('role') in ('barista', 'young', 'trainee'):
+                self._send_json(403, {'error': 'forbidden'})
+                return
+            # super_admin override
+            if user_id != 199897236 and user.get('role') not in ('admin', 'super_admin', 'chef'):
                 self._send_json(403, {'error': 'forbidden'})
                 return
 

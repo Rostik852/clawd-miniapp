@@ -61,7 +61,7 @@
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* APP */
-    #appScreen { display: none; flex-direction: column; height: 100vh; overflow: hidden; }
+    #appScreen { display: none; flex-direction: column; height: 100vh; overflow: hidden; width: 100%; align-items: stretch; }
     #appScreen.active { display: flex; }
 
     /* HEADER */
@@ -326,6 +326,9 @@
     .terminal-date-nav { display: flex; align-items: center; justify-content: space-between; background: var(--bg2); border-radius: var(--radius); padding: 12px 16px; border: 1px solid var(--border); margin-bottom: 14px; }
     .terminal-nav-btn { background: none; border: none; color: var(--accent); font-size: 1.5rem; cursor: pointer; padding: 4px 12px; line-height: 1; }
     .terminal-nav-btn:disabled { opacity: 0.3; cursor: default; }
+    .hourly-chart { background: var(--bg2); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; border: 1px solid var(--border); }
+    .hourly-chart-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--hint); margin-bottom: 12px; font-weight: 600; }
+    .chart-svg-wrap { width: 100%; overflow-x: auto; }
   </style>
 </head>
 <body>
@@ -412,6 +415,12 @@ document.addEventListener('touchend', function(e) {
       <!-- Status banner (loaded from summary) -->
       <div id="enterStatusBanner" class="status-banner banner-open" style="margin-bottom:14px">🔴 День ще не закрито</div>
 
+      <!-- Section B: Close day (moved to top) -->
+      <div class="section-card" id="closeDaySection" style="margin-bottom:14px">
+        <div class="section-card-title">🔒 Закрити день</div>
+        <div id="closeDayBody"></div>
+      </div>
+
       <!-- Section A: Snapshot -->
       <div class="card" style="margin-bottom:14px">
         <div style="font-weight:600; margin-bottom:14px">📸 Snapshot</div>
@@ -446,10 +455,33 @@ document.addEventListener('touchend', function(e) {
         </button>
       </div>
 
-      <!-- Section B: Close day -->
-      <div class="section-card" id="closeDaySection">
-        <div class="section-card-title">🔒 Закрити день</div>
-        <div id="closeDayBody"></div>
+      <!-- Admin financial operations (hidden for barista/young) -->
+      <div id="adminOpsSection" style="display:none">
+        <div class="section-title">💶 Операції з касою</div>
+
+        <div class="card" style="margin-bottom:12px">
+          <div style="font-weight:600; margin-bottom:12px; font-size:0.95rem">📥 Вплата в касу</div>
+          <input type="number" id="depositAmount" inputmode="decimal" placeholder="Сума (zł)"
+            style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.95rem;outline:none;margin-bottom:8px">
+          <input type="text" id="depositNote" placeholder="Примітка (необов'язково)"
+            style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none;margin-bottom:10px">
+          <button onclick="saveOperation('deposit')"
+            style="width:100%;background:rgba(76,175,125,0.15);border:1px solid var(--green);color:var(--green);border-radius:10px;padding:11px;font-size:0.9rem;font-weight:600;cursor:pointer">
+            💾 Зберегти вплату
+          </button>
+        </div>
+
+        <div class="card" style="margin-bottom:14px">
+          <div style="font-weight:600; margin-bottom:12px; font-size:0.95rem">📤 Виплата з каси</div>
+          <input type="number" id="withdrawalAmount" inputmode="decimal" placeholder="Сума (zł)"
+            style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.95rem;outline:none;margin-bottom:8px">
+          <input type="text" id="withdrawalNote" placeholder="Примітка (необов'язково)"
+            style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none;margin-bottom:10px">
+          <button onclick="saveOperation('withdrawal')"
+            style="width:100%;background:rgba(224,85,85,0.12);border:1px solid var(--red);color:var(--red);border-radius:10px;padding:11px;font-size:0.9rem;font-weight:600;cursor:pointer">
+            💾 Зберегти виплату
+          </button>
+        </div>
       </div>
     </div>
 
@@ -505,6 +537,12 @@ document.addEventListener('touchend', function(e) {
       </div>
       <div class="section-title" style="margin-top:14px">Активні модулі</div>
       <div id="p-modules"></div>
+
+      <!-- Notification settings -->
+      <div class="section-title" style="margin-top:18px">🔔 Сповіщення</div>
+      <div id="notifSettingsBlock">
+        <div class="dash-loading" style="padding:16px 0"><div class="spinner" style="margin:0 auto 6px"></div>Завантаження...</div>
+      </div>
     </div>
 
     <!-- Terminal Tab (admin only) -->
@@ -538,11 +576,22 @@ document.addEventListener('touchend', function(e) {
       </div>
     </div>
 
+    <!-- Shifts schedule tab -->
+    <div class="tab-pane" id="tab-shifts">
+      <div id="shiftsContainer">
+        <div class="dash-loading"><div class="spinner" style="margin:0 auto 8px"></div>Завантаження...</div>
+      </div>
+    </div>
+
   </div>
 
   <!-- FAB -->
   <div class="fab-container" id="fabContainer">
     <div class="fab-menu" id="fabMenu">
+      <button class="fab-item" onclick="fabAction('dash')">
+        <span class="fab-item-label">Dashboard</span>
+        <span class="fab-item-icon">📊</span>
+      </button>
       <button class="fab-item" onclick="fabAction('enter')">
         <span class="fab-item-label">Внести</span>
         <span class="fab-item-icon">➕</span>
@@ -577,6 +626,7 @@ document.addEventListener('touchend', function(e) {
     <button class="drawer-item" id="dItem-enter" onclick="drawerNav('enter')">➕ Внести</button>
     <button class="drawer-item" id="dItem-export" onclick="drawerNav('export')" style="display:none">📥 Витяг</button>
     <button class="drawer-item" id="dItem-terminal" onclick="drawerNav('terminal')" style="display:none">💳 Термінал</button>
+    <button class="drawer-item" id="dItem-shifts" onclick="drawerNav('shifts')">📅 Графік змін</button>
     <button class="drawer-item" id="dItem-profile" onclick="drawerNav('profile')">👤 Профіль</button>
   </nav>
   <div class="drawer-footer" id="drawerUserInfo">
@@ -657,16 +707,20 @@ function toggleDrawer() {
 function drawerNav(tab) {
   toggleDrawer();
   showTab(tab);
+}
+
+// ── TAB NAVIGATION ───────────────────────────────────────────────────────────
+function syncNavState(tab) {
   document.querySelectorAll('.drawer-item').forEach(b => b.classList.remove('active'));
   const btn = document.getElementById('dItem-' + tab);
   if (btn) btn.classList.add('active');
 }
 
-// ── TAB NAVIGATION ───────────────────────────────────────────────────────────
 function showTab(tab) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
   const pane = document.getElementById('tab-' + tab);
   if (pane) pane.classList.add('active');
+  syncNavState(tab);
   if (tab === 'enter') {
     loadEnterStatus();
     // Only init denom grid if bills mode is active
@@ -677,6 +731,8 @@ function showTab(tab) {
     if (!terminalDate) initTerminalTab();
     else { terminalRenderDate(); terminalLoadData(); }
   }
+  if (tab === 'shifts') loadShifts();
+  if (tab === 'profile') loadNotifSettings();
 }
 
 function switchTab(name, btn) {
@@ -722,9 +778,7 @@ function setupWorkerUI() {
   if (enterPane) enterPane.classList.add('active');
 
   // Update drawer active state
-  document.querySelectorAll('.drawer-item').forEach(b => b.classList.remove('active'));
-  const dEnter = document.getElementById('dItem-enter');
-  if (dEnter) dEnter.classList.add('active');
+  syncNavState('enter');
 
   // Load enter tab status
   loadEnterStatus();
@@ -741,6 +795,8 @@ function setupAdminUI() {
     const exportTabBtn = document.getElementById('exportTabBtn');
     if (exportTabBtn) exportTabBtn.style.display = 'flex';
   }
+  const opsSection = document.getElementById('adminOpsSection');
+  if (opsSection && !isWorkerOnly()) opsSection.style.display = 'block';
   showTab('dash');
 }
 
@@ -835,58 +891,172 @@ async function loadDashboard(period) {
   }
 }
 
+function renderHourlyChart(snapshots) {
+  if (!snapshots || !snapshots.length) return '';
+  const START_H = 7, END_H = 20;
+  const W = 320, H = 120;
+  const PAD = { top: 10, right: 10, bottom: 24, left: 40 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+  const points = snapshots
+    .filter(s => s.cash_amount != null && s.time)
+    .map(s => {
+      const [hh, mm] = s.time.split(':').map(Number);
+      return { h: hh + mm / 60, cash: s.cash_amount, coffee: s.coffee_portions || 0 };
+    })
+    .filter(p => p.h >= START_H && p.h <= END_H)
+    .sort((a, b) => a.h - b.h);
+  if (!points.length) return '';
+  const maxCash = Math.max(...points.map(p => p.cash), 1);
+  const toX = h => PAD.left + ((h - START_H) / (END_H - START_H)) * chartW;
+  const toY = v => PAD.top + chartH - (v / maxCash) * chartH;
+  const allPts = [{ h: START_H, cash: 0 }, ...points];
+  const pathD = allPts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${toX(p.h).toFixed(1)} ${toY(p.cash).toFixed(1)}`).join(' ');
+  const areaD = pathD + ` L ${toX(points[points.length-1].h).toFixed(1)} ${(PAD.top + chartH).toFixed(1)} L ${toX(START_H).toFixed(1)} ${(PAD.top + chartH).toFixed(1)} Z`;
+  const dotsHtml = points.map(p => `
+    <circle cx="${toX(p.h).toFixed(1)}" cy="${toY(p.cash).toFixed(1)}" r="4" fill="#C8956C" stroke="var(--bg2)" stroke-width="2"/>
+    <text x="${toX(p.h).toFixed(1)}" y="${(toY(p.cash) - 8).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--hint)">${p.cash.toFixed(0)}</text>
+  `).join('');
+  const hours = [7, 9, 11, 13, 15, 17, 19];
+  const hoursHtml = hours.map(h => `
+    <text x="${toX(h).toFixed(1)}" y="${(PAD.top + chartH + 14).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--hint)">${h}:00</text>
+    <line x1="${toX(h).toFixed(1)}" y1="${PAD.top}" x2="${toX(h).toFixed(1)}" y2="${(PAD.top + chartH).toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+  `).join('');
+  const yLabel = `<text x="${PAD.left - 6}" y="${(PAD.top + chartH / 2).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--hint)" transform="rotate(-90, ${PAD.left - 6}, ${(PAD.top + chartH / 2).toFixed(1)})">${maxCash.toFixed(0)}</text>`;
+  return `
+    <div class="hourly-chart">
+      <div class="hourly-chart-title">📈 Динаміка виручки (готівка)</div>
+      <div class="chart-svg-wrap">
+        <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%">
+          <defs>
+            <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#C8956C" stop-opacity="0.3"/>
+              <stop offset="100%" stop-color="#C8956C" stop-opacity="0.02"/>
+            </linearGradient>
+          </defs>
+          ${hoursHtml}
+          <path d="${areaD}" fill="url(#areaGrad)"/>
+          <path d="${pathD}" fill="none" stroke="#C8956C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          ${dotsHtml}
+          ${yLabel}
+        </svg>
+      </div>
+    </div>`;
+}
+
+let _opInProgress = false;
+async function saveOperation(type) {
+  if (!currentUser || _opInProgress) return;
+  const amountId = type === 'deposit' ? 'depositAmount' : 'withdrawalAmount';
+  const noteId = type === 'deposit' ? 'depositNote' : 'withdrawalNote';
+  const btnId = type === 'deposit' ? 'btnDeposit' : 'btnWithdrawal';
+  const amountEl = document.getElementById(amountId);
+  const noteEl = document.getElementById(noteId);
+  const btnEl = document.getElementById(btnId);
+  const val = parseFloat(amountEl.value);
+  if (!val || val <= 0) {
+    showToast('⚠️ Введіть суму');
+    return;
+  }
+  const label = type === 'deposit' ? 'Вплату' : 'Виплату';
+  const fieldMap = { deposit: 'deposits', withdrawal: 'withdrawals' };
+  const now = new Date();
+
+  // Block double submission
+  _opInProgress = true;
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳...'; }
+
+  try {
+    const res = await fetch(`${API}/api/record`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        init_data: tg?.initData || '',
+        date: now.toISOString().slice(0, 10),
+        field: fieldMap[type],
+        value: val,
+        notes: noteEl.value.trim() || null,
+      })
+    });
+    const data = await res.json();
+    if (data.status === 'ok' || data.ok || data.id) {
+      amountEl.value = '';
+      noteEl.value = '';
+      showToast(`✅ ${label} ${val.toFixed(2)} zł збережено`);
+      cachedSummary = null;
+      lastFetchTime = 0;
+      loadDashboard('day');
+    } else {
+      showToast('❌ ' + (data.error || 'Помилка'));
+    }
+  } catch(e) {
+    showToast('❌ Помилка з\'єднання');
+  } finally {
+    _opInProgress = false;
+    const lbl = type === 'deposit' ? '💾 Зберегти вплату' : '💾 Зберегти виплату';
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = lbl; }
+  }
+}
+
 function renderDayDashboard(s, container) {
   updateDayStatus(s.is_finalized, s.closed_at);
 
-  const cashIncome = s.cash_income ?? 0;
-  const cardIncome = s.card_income ?? 0;
+  const cashIncome    = s.cash_income ?? 0;
+  const cardIncome    = s.card_income ?? 0;
+  const totalIncome   = cashIncome + cardIncome;
   const coffeePortions = s.coffee_portions ?? 0;
-  const closingCash = s.closing_cash;
-  const openingCash = s.opening_cash ?? 0;
-  const adminWit = s.admin_withdrawals ?? 0;
-  const adminDep = s.admin_deposits ?? 0;
-  const expenses = s.expenses ?? 0;
+  const closingCash   = s.closing_cash;
+  const openingCash   = s.opening_cash ?? 0;
+  const adminWit      = s.admin_withdrawals ?? 0;
+  const adminDep      = s.admin_deposits ?? 0;
+  const expenses      = s.expenses ?? 0;
 
-  // Avg price
+  // Avg price — prefer saved value, fallback to calculated
   let avgHtml = '';
   if (coffeePortions > 0) {
-    const avgCash = cashIncome / coffeePortions;
-    const avgTotal = (cashIncome + cardIncome) / coffeePortions;
-    const hasCard = cardIncome > 0;
+    const avgCash  = s.avg_price_cash  ?? (cashIncome / coffeePortions);
+    const avgTotal = s.avg_price_total ?? ((cashIncome + cardIncome) / coffeePortions);
+    const hasCard  = cardIncome > 0;
+    const savedLabel = s.avg_price_cash ? '' : '<span style="font-size:0.65rem;color:var(--hint)"> (закрий день для збереження)</span>';
     avgHtml = `
       <div class="avg-price-card">
-        <div class="avg-title">☕ Середня ціна порції</div>
+        <div class="avg-title">☕ Середня ціна порції${savedLabel}</div>
         <div class="avg-row${!hasCard ? ' primary' : ''}">💵 Готівкова: ${avgCash.toFixed(2)} zł</div>
         ${hasCard ? `<div class="avg-row primary">💳 Загальна: ${avgTotal.toFixed(2)} zł</div>` : ''}
-        ${!hasCard ? '<div class="avg-note">(картку не внесено — неточна)</div>' : ''}
+        ${!hasCard ? '<div class="avg-note">(картку не внесено)</div>' : ''}
       </div>`;
   }
 
   // Snapshots
   const snaps = s.snapshots || [];
-  const snapsHtml = snaps.length ? snaps.map(snap => {
+  const lastSnapIdx = snaps.length - 1;
+  const closingFromSnap = s.closing_from_snapshot;
+  const snapsHtml = snaps.length ? snaps.map((snap, idx) => {
     const parts = [];
     if (snap.cash_amount != null) parts.push('💵 каса ' + fmt(snap.cash_amount));
     if (snap.coffee_portions != null) parts.push('☕ кава ' + snap.coffee_portions + ' шт');
-    return `<div class="snap-item">
-      <div class="snap-top"><span class="snap-time">${snap.time || ''}</span></div>
+    const isLastSnap = idx === lastSnapIdx;
+    const isEffectiveClose = closingFromSnap && isLastSnap;
+    const workerName = snap.worker_name || snap.first_name || '';
+    return `<div class="snap-item" style="${isEffectiveClose ? 'border-left:3px solid var(--orange)' : ''}">
+      <div class="snap-top">
+        <span class="snap-time">${snap.time || ''}</span>
+        <span style="font-size:0.75rem;color:var(--hint)">${workerName}</span>
+        ${isEffectiveClose ? '<span style="font-size:0.7rem;color:var(--orange);margin-left:auto">📌 авто-закриття</span>' : ''}
+      </div>
       <div class="snap-detail">${parts.join(' · ') || '—'}${snap.notes ? ' · ' + snap.notes : ''}</div>
     </div>`;
   }).join('') : '<div class="empty-msg">Зрізів ще немає</div>';
 
   container.innerHTML = `
-    <div class="stat-card">
-      <div class="stat-icon-wrap"><span class="stat-icon">💵</span></div>
+    <!-- Головна картка: виторг -->
+    <div class="stat-card" style="background:rgba(76,175,125,0.1);border-color:rgba(76,175,125,0.3)">
+      <div class="stat-icon-wrap" style="background:rgba(76,175,125,0.2)"><span class="stat-icon">💰</span></div>
       <div class="stat-body">
-        <div class="stat-label">Виручка готівка</div>
-        <div class="stat-value green" id="d-cash">${fmt(cashIncome)}</div>
-      </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon-wrap"><span class="stat-icon">💳</span></div>
-      <div class="stat-body">
-        <div class="stat-label">Виручка картка</div>
-        <div class="stat-value blue" id="d-card">${fmt(cardIncome)}</div>
+        <div class="stat-label">Виторг за день</div>
+        <div class="stat-value green" style="font-size:1.6rem" id="d-total">${fmt(totalIncome)}</div>
+        ${cardIncome > 0 ? `<div style="font-size:0.72rem;color:var(--hint);margin-top:2px">💵 ${fmt(cashIncome)} + 💳 ${fmt(cardIncome)}</div>` : ''}
       </div>
     </div>
     <div class="stat-card">
@@ -899,24 +1069,31 @@ function renderDayDashboard(s, container) {
     <div class="stat-card">
       <div class="stat-icon-wrap"><span class="stat-icon">🏦</span></div>
       <div class="stat-body">
-        <div class="stat-label">Каса</div>
+        <div class="stat-label">Каса на кінець</div>
         <div class="stat-value" id="d-box">${closingCash != null ? fmt(closingCash) : 'Не закрито'}</div>
       </div>
     </div>
 
+    ${renderHourlyChart(snaps)}
+
     ${avgHtml}
 
-    <div class="section-title">Деталі сьогодні</div>
+    <div class="section-title">Деталі дня</div>
     <div class="breakdown">
-      <div class="brow" id="b-ci"><span class="brow-label">💵 Виручка готівка</span><span class="brow-val pos">${fmt(cashIncome)}</span></div>
-      <div class="brow" id="b-cr"><span class="brow-label">💳 Виручка картка</span><span class="brow-val pos">${fmt(cardIncome)}</span></div>
-      <div class="brow"><span class="brow-label">🏦 Розмінка (відкриття)</span><span class="brow-val">${fmt(openingCash)}</span></div>
-      ${adminWit ? `<div class="brow" id="b-wit"><span class="brow-label">📤 Адмін виплати</span><span class="brow-val neg">${fmt(adminWit)}</span></div>` : ''}
-      ${adminDep ? `<div class="brow" id="b-dep"><span class="brow-label">📥 Адмін вплати</span><span class="brow-val pos">${fmt(adminDep)}</span></div>` : ''}
+      <div class="brow" style="font-weight:600">
+        <span class="brow-label">💰 Виторг загальний</span>
+        <span class="brow-val pos" style="font-size:1rem">${fmt(totalIncome)}</span>
+      </div>
+      <div class="brow" id="b-ci"><span class="brow-label">↳ 💵 Готівка</span><span class="brow-val pos">${fmt(cashIncome)}</span></div>
+      ${cardIncome > 0 ? `<div class="brow" id="b-cr"><span class="brow-label">↳ 💳 Картка</span><span class="brow-val pos">${fmt(cardIncome)}</span></div>` : ''}
+      <div class="brow"><span class="brow-label">🏦 Розмінка</span><span class="brow-val">${fmt(openingCash)}</span></div>
+      ${adminDep ? `<div class="brow" id="b-dep"><span class="brow-label">📥 Вплата в касу</span><span class="brow-val" style="color:var(--orange)">${fmt(adminDep)}</span></div>` : ''}
+      ${adminWit ? `<div class="brow" id="b-wit"><span class="brow-label">📤 Виплата з каси</span><span class="brow-val" style="color:var(--orange)">${fmt(adminWit)}</span></div>` : ''}
       ${expenses ? `<div class="brow" id="b-exp"><span class="brow-label">🧾 Витрати</span><span class="brow-val neg">${fmt(expenses)}</span></div>` : ''}
+      ${closingCash != null ? `<div class="brow"><span class="brow-label">🏦 Каса закрита</span><span class="brow-val">${fmt(closingCash)}</span></div>` : ''}
     </div>
 
-    <div class="section-title">📸 Snapshots за день</div>
+    <div class="section-title">📸 Snapshots за день ${snaps.length ? `<span style="font-weight:400;color:var(--hint)">(${snaps.length} шт)</span>` : ''}</div>
     <div id="snapshotsList">${snapsHtml}</div>
   `;
 }
@@ -1726,6 +1903,403 @@ init();
       } catch(e) {
         showToast("❌ Помилка з'єднання");
       }
+    }
+
+    // ── NOTIFICATIONS SETTINGS ───────────────────────────────────────────────
+    let _notifSettings = null;
+
+    const NOTIF_LABELS = {
+      on_snapshot:          { label: 'Snapshot зроблено',         who: 'admin', icon: '📸' },
+      on_close_day:         { label: 'День закрито',              who: 'admin', icon: '🔒' },
+      on_swap_request:      { label: 'Запит на обмін зміною',     who: 'admin', icon: '🔄' },
+      remind_snapshot:      { label: 'Нагадування snapshot (-10 хв)', who: 'worker', icon: '⏰' },
+      notify_shift_assigned:{ label: 'Нова зміна в графіку',      who: 'worker', icon: '📅' },
+    };
+
+    async function loadNotifSettings() {
+      if (!currentUser) return;
+      try {
+        const r = await fetch(`${API}/api/notifications?user_id=${currentUser.id}`);
+        _notifSettings = await r.json();
+        renderNotifSettings();
+      } catch(e) {}
+    }
+
+    function renderNotifSettings() {
+      const s = _notifSettings;
+      if (!s) return;
+      const isAdm = isAdminUser();
+      const block = document.getElementById('notifSettingsBlock');
+      if (!block) return;
+
+      const adminKeys   = ['on_snapshot', 'on_close_day', 'on_swap_request'];
+      const workerKeys  = ['remind_snapshot', 'notify_shift_assigned'];
+      const myKeys      = isAdm ? [...adminKeys, ...workerKeys] : workerKeys;
+
+      let html = '<div class="breakdown">';
+      myKeys.forEach(key => {
+        const meta = NOTIF_LABELS[key];
+        const enabled = !!s[key];
+        html += `<div class="brow">
+          <span class="brow-label">${meta.icon} ${meta.label}</span>
+          <label style="position:relative;display:inline-block;width:40px;height:22px;cursor:pointer">
+            <input type="checkbox" id="notif_${key}" ${enabled ? 'checked' : ''}
+              onchange="saveNotifSetting('${key}', this.checked)"
+              style="opacity:0;width:0;height:0;position:absolute">
+            <span id="notif_toggle_${key}" style="position:absolute;inset:0;border-radius:11px;transition:.2s;background:${enabled ? 'var(--green)' : '#334'};border:1px solid ${enabled ? 'var(--green)' : '#445'}">
+              <span style="position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:2px;transition:.2s;left:${enabled ? '20px' : '2px'}"></span>
+            </span>
+          </label>
+        </div>`;
+      });
+      html += '</div>';
+
+      // Admin: per-worker settings
+      if (isAdm) {
+        html += `<div class="section-title" style="margin-top:14px">Сповіщення для працівників</div>
+          <div class="breakdown">
+            <div class="brow" style="flex-direction:column;align-items:flex-start;gap:4px">
+              <span style="font-size:0.8rem;color:var(--hint)">При додаванні зміни в графік — чи повідомляти працівника?</span>
+              <span style="font-size:0.75rem;color:var(--hint)">Можна вимкнути в момент збереження (галочка в модалі)</span>
+            </div>
+          </div>`;
+      }
+
+      block.innerHTML = html;
+    }
+
+    async function saveNotifSetting(key, value) {
+      if (!currentUser) return;
+      const toggle = document.getElementById(`notif_toggle_${key}`);
+      const span = toggle?.querySelector('span');
+      if (toggle) {
+        toggle.style.background = value ? 'var(--green)' : '#334';
+        toggle.style.borderColor = value ? 'var(--green)' : '#445';
+        if (span) span.style.left = value ? '20px' : '2px';
+      }
+      try {
+        await fetch(`${API}/api/notifications`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            action: 'update_settings',
+            user_id: currentUser.id,
+            [key]: value ? 1 : 0
+          })
+        });
+        if (_notifSettings) _notifSettings[key] = value ? 1 : 0;
+      } catch(e) {
+        showToast('❌ Помилка збереження');
+      }
+    }
+
+    // ── SHIFTS TAB ─────────────────────────────────────────────────────────────
+    let shiftsData = { shifts: [], workers: [], pending_swaps: [], is_admin: false };
+    let shiftsWeekOffset = 0;
+
+    function shiftsDateRange() {
+      const today = new Date();
+      today.setDate(today.getDate() + shiftsWeekOffset * 7);
+      const mon = new Date(today);
+      mon.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+      const dates = [];
+      for (let i = 0; i < 14; i++) {
+        const d = new Date(mon);
+        d.setDate(mon.getDate() + i);
+        dates.push(d.toISOString().slice(0, 10));
+      }
+      return { from: dates[0], to: dates[dates.length - 1], dates };
+    }
+
+    async function loadShifts() {
+      if (!currentUser) return;
+      const { from, to } = shiftsDateRange();
+      try {
+        const r = await fetch(`${API}/api/shifts?user_id=${currentUser.id}&from=${from}&to=${to}`);
+        shiftsData = await r.json();
+        renderShifts();
+      } catch(e) {
+        document.getElementById('shiftsContainer').innerHTML = '<div class="empty-msg">❌ Помилка завантаження</div>';
+      }
+    }
+
+    function renderShifts() {
+      const { dates } = shiftsDateRange();
+      const shiftMap = {};
+      shiftsData.shifts.forEach(s => {
+        if (!shiftMap[s.date]) shiftMap[s.date] = {};
+        shiftMap[s.date][s.shift_num] = s;
+      });
+
+      const swaps = shiftsData.pending_swaps || [];
+      const isAdm = shiftsData.is_admin;
+      const _days = ['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
+      const _months = ['Січ','Лют','Бер','Квіт','Трав','Черв','Лип','Серп','Вер','Жовт','Лист','Груд'];
+
+      let html = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <button onclick="shiftsWeekOffset--;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">‹</button>
+          <div style="font-size:0.8rem;color:var(--hint);text-align:center">
+            ${dates[0].slice(5)} — ${dates[13].slice(5)}
+          </div>
+          <button onclick="shiftsWeekOffset++;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">›</button>
+        </div>
+      `;
+
+      // Pending swap requests — visible only to involved parties (already filtered by API)
+      if (swaps.length) {
+        html += `<div class="section-title">🔄 Запити на обмін (${swaps.length})</div>`;
+        swaps.forEach(sw => {
+          const iAmRequester = sw.requester_id === currentUser.id;
+          const iAmTarget    = sw.target_id    === currentUser.id;
+          const reqName = ((sw.req_first||'') + ' ' + (sw.req_last||'')).trim() || sw.req_username || `#${sw.requester_id}`;
+          const tgtName = ((sw.tgt_first||'') + ' ' + (sw.tgt_last||'')).trim() || `#${sw.target_id}`;
+          html += `<div class="breakdown" style="margin-bottom:8px">
+            <div class="brow" style="flex-direction:column;align-items:flex-start;gap:6px">
+              <div style="font-size:0.82rem;color:var(--text)">
+                ${iAmRequester ? '📤 Ваш запит' : `📥 Запит від <strong>${reqName}</strong>`}
+                → <strong>${sw.date}</strong>
+              </div>
+              ${sw.notes ? `<div style="font-size:0.72rem;color:var(--hint)">${sw.notes}</div>` : ''}
+              <div style="display:flex;gap:6px;margin-top:2px">
+                ${iAmTarget ? `
+                  <button onclick="respondSwap(${sw.id},true)"  style="background:rgba(76,175,125,0.2);border:1px solid var(--green);color:var(--green);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">✅ Прийняти</button>
+                  <button onclick="respondSwap(${sw.id},false)" style="background:rgba(224,85,85,0.1);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">❌ Відхилити</button>
+                ` : '<span style="font-size:0.73rem;color:var(--hint)">Очікує відповіді від ' + tgtName + '</span>'}
+              </div>
+            </div>
+          </div>`;
+        });
+      }
+
+      // ── Hours summary per worker ──────────────────────────────────────────
+      const hoursMap = {};
+      shiftsData.shifts.forEach(s => {
+        if (!s.time_start || !s.time_end) return;
+        const [h1, m1] = s.time_start.split(':').map(Number);
+        const [h2, m2] = s.time_end.split(':').map(Number);
+        let mins = (h2*60+m2) - (h1*60+m1);
+        if (mins < 0) mins += 24*60;
+        hoursMap[s.worker_name] = (hoursMap[s.worker_name] || 0) + mins;
+      });
+      const workerEntries = Object.entries(hoursMap);
+      if (workerEntries.length) {
+        html += `<div class="section-title">⏱ Відпрацьовано в цьому діапазоні</div>
+          <div class="breakdown" style="margin-bottom:14px">`;
+        workerEntries.sort((a,b) => b[1]-a[1]).forEach(([name, mins]) => {
+          const h = Math.floor(mins/60), m = mins%60;
+          const timeStr = m ? `${h} год ${m} хв` : `${h} год`;
+          html += `<div class="brow"><span class="brow-label">👤 ${name}</span><span class="brow-val">${timeStr}</span></div>`;
+        });
+        html += `</div>`;
+      }
+
+      html += '<div class="section-title">📅 Графік на 2 тижні</div>';
+
+      // Calendar grid
+      dates.forEach(date => {
+        const d = new Date(date + 'T00:00:00');
+        const dayName = _days[(d.getDay() + 6) % 7];
+        const dayNum = d.getDate();
+        const monthName = _months[d.getMonth()];
+        const isToday = date === new Date().toISOString().slice(0,10);
+        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+
+        const s1 = shiftMap[date]?.[1];
+        const s2 = shiftMap[date]?.[2];
+
+        const shiftBlock = (s, num) => {
+          if (!s) {
+            if (!isAdm) return '';
+            return `<button onclick="openAddShift('${date}',${num})"
+              style="flex:1;background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:var(--hint);font-size:0.75rem;cursor:pointer;text-align:center">
+              + Зміна ${num}
+            </button>`;
+          }
+          const myShift = s.user_id === currentUser.id;
+          return `<div style="flex:1;background:${myShift?'rgba(200,149,108,0.15)':'rgba(40,50,100,0.5)'};border:1px solid ${myShift?'var(--accent)':'rgba(60,80,180,0.3)'};border-radius:8px;padding:8px;position:relative">
+            <div style="font-size:0.72rem;color:var(--hint)">Зміна ${num}</div>
+            <div style="font-size:0.82rem;font-weight:600;color:${myShift?'var(--accent)':'var(--text)'}">${s.worker_name}</div>
+            ${s.time_start ? `<div style="font-size:0.7rem;color:var(--hint)">${s.time_start}–${s.time_end||'?'}</div>` : ''}
+            <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
+              ${myShift && !isAdm ? `<button onclick="openSwapRequest('${date}',${s.user_id})" style="background:rgba(91,155,213,0.15);border:1px solid var(--blue);color:var(--blue);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">🔄 Обмін</button>` : ''}
+              ${isAdm ? `<button onclick="openEditShift('${date}',${num},${s.user_id},'${s.time_start||''}','${s.time_end||''}')" style="background:none;border:1px solid rgba(255,255,255,0.1);color:var(--hint);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">✏️</button>` : ''}
+              ${isAdm ? `<button onclick="deleteShift('${date}',${num})" style="background:none;border:1px solid var(--red);color:var(--red);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">🗑</button>` : ''}
+            </div>
+          </div>`;
+        };
+
+        html += `<div style="background:${isToday?'rgba(200,149,108,0.08)':'var(--bg2)'};border:1px solid ${isToday?'rgba(200,149,108,0.3)':'var(--border)'};border-radius:12px;padding:10px 12px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <span style="font-weight:700;font-size:0.9rem;color:${isWeekend?'var(--orange)':isToday?'var(--accent)':'var(--text)'}">${dayNum} ${monthName}</span>
+            <span style="font-size:0.75rem;color:var(--hint)">${dayName}</span>
+            ${isToday ? '<span style="font-size:0.65rem;color:var(--accent);margin-left:auto">сьогодні</span>' : ''}
+          </div>
+          <div style="display:flex;gap:8px">
+            ${shiftBlock(s1, 1)}
+            ${shiftBlock(s2, 2)}
+          </div>
+        </div>`;
+      });
+
+      document.getElementById('shiftsContainer').innerHTML = html;
+    }
+
+    // Default times per shift
+    const SHIFT_DEFAULTS = { 1: { start: '07:00', end: '14:00' }, 2: { start: '14:00', end: '20:00' } };
+
+    // Add/edit shift modal
+    function openAddShift(date, shiftNum, workerId='', tStart='', tEnd='') {
+      if (!tStart) tStart = SHIFT_DEFAULTS[shiftNum]?.start || '07:00';
+      if (!tEnd)   tEnd   = SHIFT_DEFAULTS[shiftNum]?.end   || '20:00';
+      const workers = shiftsData.workers || [];
+      const workerOpts = workers.map(w => `<option value="${w.id}" ${w.id==workerId?'selected':''}>${w.display_name} (${w.role})</option>`).join('');
+      const title = workerId ? 'Редагувати зміну' : 'Додати зміну';
+      showModal(`
+        <div class="modal-title">📅 ${title}</div>
+        <input type="hidden" id="shiftDate" value="${date}">
+        <input type="hidden" id="shiftNum" value="${shiftNum}">
+        <div style="margin-bottom:10px">
+          <div class="card-label" style="margin-bottom:4px">Дата</div>
+          <div style="color:var(--text);font-size:0.9rem">${date}</div>
+        </div>
+        <div style="margin-bottom:10px">
+          <div class="card-label" style="margin-bottom:4px">Зміна</div>
+          <div style="display:flex;gap:8px">
+            <button class="mode-btn ${shiftNum==1?'active':''}" onclick="document.getElementById('shiftNum').value=1;this.classList.add('active');this.nextElementSibling.classList.remove('active')">1-а зміна</button>
+            <button class="mode-btn ${shiftNum==2?'active':''}" onclick="document.getElementById('shiftNum').value=2;this.classList.remove('active');this.previousElementSibling.classList.remove('active');this.classList.add('active')">2-а зміна</button>
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <div class="card-label" style="margin-bottom:4px">Працівник</div>
+          <select id="shiftWorker" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+            <option value="">Оберіть...</option>${workerOpts}
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="flex:1">
+            <div class="card-label" style="margin-bottom:4px">Початок</div>
+            <input type="time" id="shiftStart" value="${tStart}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
+          </div>
+          <div style="flex:1">
+            <div class="card-label" style="margin-bottom:4px">Кінець</div>
+            <input type="time" id="shiftEnd" value="${tEnd}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:8px">
+          <input type="checkbox" id="shiftNotifyWorker" checked style="width:16px;height:16px;cursor:pointer">
+          <label for="shiftNotifyWorker" style="font-size:0.82rem;color:var(--hint);cursor:pointer">🔔 Повідомити працівника</label>
+        </div>
+        <button onclick="saveShift()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">💾 Зберегти</button>
+        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">Скасувати</button>
+      `);
+    }
+
+    function openEditShift(date, num, wid, ts, te) { openAddShift(date, num, wid, ts, te); }
+
+    async function saveShift() {
+      const wid = document.getElementById('shiftWorker').value;
+      if (!wid) { showToast('⚠️ Оберіть працівника'); return; }
+      try {
+        const res = await fetch(`${API}/api/shifts`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            user_id: currentUser.id,
+            action: 'set',
+            date: document.getElementById('shiftDate').value,
+            shift_num: parseInt(document.getElementById('shiftNum').value),
+            worker_id: parseInt(wid),
+            time_start: document.getElementById('shiftStart').value || null,
+            time_end: document.getElementById('shiftEnd').value || null,
+            notify_worker: document.getElementById('shiftNotifyWorker')?.checked !== false,
+          })
+        });
+        const d = await res.json();
+        if (d.ok) { closeModal(); showToast('✅ Зміну збережено'); loadShifts(); }
+        else showToast('❌ ' + (d.error||'Помилка'));
+      } catch(e) { showToast('❌ Помилка зʼєднання'); }
+    }
+
+    async function deleteShift(date, num) {
+      if (!confirm(`Видалити зміну ${num} на ${date}?`)) return;
+      try {
+        const res = await fetch(`${API}/api/shifts`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ user_id: currentUser.id, action:'delete', date, shift_num: num })
+        });
+        const d = await res.json();
+        if (d.ok) { showToast('🗑 Видалено'); loadShifts(); }
+        else showToast('❌ ' + (d.error||'Помилка'));
+      } catch(e) { showToast('❌ Помилка'); }
+    }
+
+    function openSwapRequest(date, targetId) {
+      showModal(`
+        <div class="modal-title">🔄 Запит на обмін зміною</div>
+        <div style="color:var(--hint);font-size:0.85rem;margin-bottom:16px">Дата: <strong style="color:var(--text)">${date}</strong></div>
+        <input type="hidden" id="swapDate" value="${date}">
+        <input type="hidden" id="swapTarget" value="${targetId}">
+        <div style="margin-bottom:12px">
+          <div class="card-label" style="margin-bottom:4px">Причина (необов'язково)</div>
+          <input type="text" id="swapNote" placeholder="напр. не можу прийти" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none">
+        </div>
+        <button onclick="sendSwapRequest()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">📤 Надіслати запит</button>
+        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">Скасувати</button>
+      `);
+    }
+
+    async function sendSwapRequest() {
+      try {
+        const res = await fetch(`${API}/api/shifts`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            user_id: currentUser.id, action:'swap_request',
+            target_id: parseInt(document.getElementById('swapTarget').value),
+            date: document.getElementById('swapDate').value,
+            notes: document.getElementById('swapNote').value || null,
+          })
+        });
+        const d = await res.json();
+        if (d.ok) { closeModal(); showToast('✅ Запит надіслано'); loadShifts(); }
+        else showToast('❌ ' + (d.error||'Помилка'));
+      } catch(e) { showToast('❌ Помилка'); }
+    }
+
+    async function respondSwap(swapId, accept) {
+      try {
+        const res = await fetch(`${API}/api/shifts`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ user_id: currentUser.id, action:'swap_respond', swap_id: swapId, accept })
+        });
+        const d = await res.json();
+        if (d.ok) { showToast(accept ? '✅ Обмін підтверджено' : '❌ Обмін відхилено'); loadShifts(); }
+        else showToast('❌ ' + (d.error||'Помилка'));
+      } catch(e) { showToast('❌ Помилка'); }
+    }
+
+    // Generic modal helper
+    function showModal(content) {
+      let m = document.getElementById('genericModal');
+      let b = document.getElementById('genericBackdrop');
+      if (!m) {
+        b = document.createElement('div');
+        b.id = 'genericBackdrop';
+        b.className = 'backdrop';
+        b.onclick = closeModal;
+        m = document.createElement('div');
+        m.id = 'genericModal';
+        m.className = 'modal';
+        document.body.appendChild(b);
+        document.body.appendChild(m);
+      }
+      m.innerHTML = content;
+      b.classList.add('open');
+      m.classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('genericBackdrop')?.classList.remove('open');
+      document.getElementById('genericModal')?.classList.remove('open');
     }
 
     </script>

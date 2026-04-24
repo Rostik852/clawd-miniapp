@@ -4,7 +4,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 from datetime import datetime, timezone
 
-from _db import get_conn, ensure_tables, get_user, verify_tg_signature, add_snapshot, delete_snapshot, is_admin, ADMIN_ID
+from _db import get_conn, ensure_tables, get_user, verify_tg_signature, add_snapshot, delete_snapshot, is_admin, ADMIN_ID, notify_admins
 from _cors import add_cors, handle_options
 
 
@@ -75,6 +75,22 @@ class handler(BaseHTTPRequestHandler):
                 cash_amount=float(cash_amount) if cash_amount is not None else None,
                 coffee_portions=int(coffee_portions) if coffee_portions is not None else None,
             )
+
+            # Push notification to admins
+            user = get_user(conn, user_id) if user_id != ADMIN_ID else None
+            worker_name = 'Адмін'
+            if user:
+                n = ((user.get('first_name') or '') + ' ' + (user.get('last_name') or '')).strip()
+                worker_name = n or user.get('username') or f'#{user_id}'
+            parts = []
+            if cash_amount is not None: parts.append(f'💵 {float(cash_amount):.0f} zł')
+            if coffee_portions is not None: parts.append(f'☕ {coffee_portions} шт')
+            details = ', '.join(parts) or '—'
+            notify_admins(conn,
+                f'📸 <b>Snapshot</b>\n👤 {worker_name}\n🕐 {time_str} · {date_str}\n{details}',
+                setting_key='on_snapshot'
+            )
+
             conn.close()
             _json(self, 200, {'ok': True})
 

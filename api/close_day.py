@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from _db import (
     get_conn, ensure_tables, get_user, verify_tg_signature,
-    get_or_create_session, update_session, ADMIN_ID
+    get_or_create_session, update_session, get_summary_day, ADMIN_ID, notify_admins
 )
 from _cors import add_cors, handle_options
 
@@ -78,9 +78,6 @@ class handler(BaseHTTPRequestHandler):
             session = get_or_create_session(conn, date_str)
             opening_cash = float(session.get('opening_cash') or 0)
 
-            # Compute cash income
-            cash_income = round(closing_cash - opening_cash, 2)
-
             # Build update fields
             fields = {
                 'closing_cash': closing_cash,
@@ -93,7 +90,47 @@ class handler(BaseHTTPRequestHandler):
             if card_income is not None:
                 fields['card_income'] = float(card_income)
 
+            # Compute avg price and save to session
+            portions = int(coffee_portions) if coffee_portions is not None else (session.get('coffee_portions') or 0)
+            card_val  = float(card_income) if card_income is not None else 0.0
+            # Need cash_income first — compute preliminary
+            admin_ops_pre = get_summary_day(conn, date_str)
+            cash_inc_pre = round(
+                closing_cash - opening_cash
+                - float(admin_ops_pre.get('cash_deposit') or 0)
+                + float(admin_ops_pre.get('cash_withdrawal') or 0)
+                + float(admin_ops_pre.get('expenses') or 0),
+                2
+            )
+            if portions > 0:
+                fields['avg_price_cash']  = round(cash_inc_pre / portions, 2)
+                fields['avg_price_total'] = round((cash_inc_pre + card_val) / portions, 2)
+
             update_session(conn, date_str, **fields)
+
+            # Compute cash income with correct formula (uses admin ops from records)
+            admin_ops = get_summary_day(conn, date_str)
+            cash_income = round(
+                closing_cash - opening_cash
+                - float(admin_ops.get('cash_deposit') or 0)
+                + float(admin_ops.get('cash_withdrawal') or 0)
+                + float(admin_ops.get('expenses') or 0),
+                2
+            )
+            # Push notification to admins
+            u = get_user(conn, user_id) if user_id != ADMIN_ID else None
+            wname = 'Адмін'
+            if u:
+                n = ((u.get('first_name') or '') + ' ' + (u.get('last_name') or '')).strip()
+                wname = n or u.get('username') or f'#{user_id}'
+            card_str = f' + 💳 {float(card_income):.0f} zł' if card_income else ''
+            notify_admins(conn,
+                f'🔒 <b>День закрито</b>\n👤 {wname}\n📅 {date_str}\n'
+                f'💵 Каса: {closing_cash:.0f} zł{card_str}\n'
+                f'☕ Порції: {coffee_portions or 0}',
+                setting_key='on_close_day'
+            )
+
             conn.close()
 
             _json(self, 200, {

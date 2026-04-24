@@ -66,7 +66,48 @@ def ensure_tables(conn):
                 is_finalized INTEGER DEFAULT 0,
                 closed_by BIGINT DEFAULT NULL,
                 closed_at TEXT DEFAULT NULL,
-                notes TEXT DEFAULT NULL
+                notes TEXT DEFAULT NULL,
+                avg_price_cash REAL DEFAULT NULL,
+                avg_price_total REAL DEFAULT NULL
+            )
+        """)
+        # Notification settings
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS notification_settings (
+                user_id BIGINT PRIMARY KEY,
+                on_snapshot INTEGER DEFAULT 1,
+                on_close_day INTEGER DEFAULT 1,
+                on_swap_request INTEGER DEFAULT 1,
+                remind_snapshot INTEGER DEFAULT 1,
+                notify_shift_assigned INTEGER DEFAULT 1,
+                updated_at TEXT DEFAULT (NOW() AT TIME ZONE 'UTC')
+            )
+        """)
+        # Shifts schedule
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS shifts (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                date TEXT NOT NULL,
+                shift_num INTEGER NOT NULL DEFAULT 1,
+                time_start TEXT DEFAULT NULL,
+                time_end TEXT DEFAULT NULL,
+                notes TEXT DEFAULT NULL,
+                created_by BIGINT,
+                created_at TEXT DEFAULT (NOW() AT TIME ZONE 'UTC'),
+                UNIQUE(date, shift_num)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS shift_swaps (
+                id SERIAL PRIMARY KEY,
+                requester_id BIGINT NOT NULL,
+                target_id BIGINT NOT NULL,
+                date TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                notes TEXT,
+                responded_at TEXT,
+                created_at TEXT DEFAULT (NOW() AT TIME ZONE 'UTC')
             )
         """)
         cur.execute("""
@@ -81,6 +122,12 @@ def ensure_tables(conn):
                 created_at TEXT NOT NULL
             )
         """)
+        # Migrate: add avg_price columns if missing
+        for col, typ in [('avg_price_cash', 'REAL'), ('avg_price_total', 'REAL')]:
+            try:
+                cur.execute(f"ALTER TABLE daily_session ADD COLUMN IF NOT EXISTS {col} {typ}")
+            except Exception:
+                pass
         conn.commit()
 
 
@@ -273,7 +320,8 @@ def update_session(conn, date_str, **fields):
     """Update daily_session fields for given date."""
     allowed = {
         'opening_cash', 'closing_cash', 'coffee_portions', 'card_income',
-        'is_finalized', 'closed_by', 'closed_at', 'notes'
+        'is_finalized', 'closed_by', 'closed_at', 'notes',
+        'avg_price_cash', 'avg_price_total'
     }
     clean = {k: v for k, v in fields.items() if k in allowed}
     if not clean:
@@ -308,13 +356,22 @@ def add_snapshot(conn, user_id, date_str, time_str, cash_amount=None, coffee_por
 
 
 def get_snapshots(conn, date_str):
-    """Get all snapshots for date ordered by time."""
+    """Get all snapshots for date ordered by time, including worker name."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            "SELECT * FROM snapshots WHERE date = %s ORDER BY time ASC",
-            (date_str,)
-        )
-        return [dict(r) for r in cur.fetchall()]
+        cur.execute("""
+            SELECT s.*, u.first_name, u.last_name, u.username, u.role
+            FROM snapshots s
+            LEFT JOIN users u ON s.user_id = u.id
+            WHERE s.date = %s ORDER BY s.time ASC
+        """, (date_str,))
+        rows = []
+        for r in cur.fetchall():
+            d = dict(r)
+            # Build display name
+            name_parts = [r['first_name'] or '', r['last_name'] or '']
+            d['worker_name'] = ' '.join(p for p in name_parts if p).strip() or r['username'] or f"#{r['user_id']}"
+            rows.append(d)
+        return rows
 
 
 def delete_snapshot(conn, snapshot_id, user_id=None):
@@ -407,14 +464,26 @@ def get_daily_summary(conn, date_str):
     admin_withdrawals = float(admin_row['admin_withdrawals'])
     expenses = float(admin_row['expenses'])
 
-    if closing is not None:
-        cash_income = closing - opening + admin_withdrawals - admin_deposits
-        net_cash = closing
+    snaps = get_snapshots(conn, date_str)
+
+    # If no formal closing — use last snapshot cash as effective closing
+    effective_closing = closing
+    last_snap_cash = None
+    if snaps:
+        last_with_cash = next(
+            (s for s in reversed(snaps) if s.get('cash_amount') is not None), None
+        )
+        if last_with_cash:
+            last_snap_cash = float(last_with_cash['cash_amount'])
+    if effective_closing is None and last_snap_cash is not None:
+        effective_closing = last_snap_cash
+
+    if effective_closing is not None:
+        cash_income = effective_closing - opening - admin_deposits + admin_withdrawals + expenses
+        net_cash = effective_closing
     else:
         cash_income = 0
         net_cash = 0
-
-    snaps = get_snapshots(conn, date_str)
 
     return {
         'date': date_str,
@@ -429,6 +498,10 @@ def get_daily_summary(conn, date_str):
         'admin_withdrawals': admin_withdrawals,
         'expenses': expenses,
         'net_cash': round(net_cash, 2),
+        'effective_closing': effective_closing,
+        'closing_from_snapshot': closing is None and last_snap_cash is not None,
+        'avg_price_cash': session.get('avg_price_cash'),
+        'avg_price_total': session.get('avg_price_total'),
         'snapshots': snaps,
     }
 
@@ -459,13 +532,18 @@ def get_period_summary(conn, period: str, ref_date: str) -> dict:
         session = get_session(conn, ref_date)
         if not session:
             return {'period': 'day', 'date': ref_date, 'rows': [], 'totals': {}}
-        cash_income = max(0, (session.get('closing_cash') or 0) - (session.get('opening_cash') or 0))
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT COALESCE(SUM(cash_deposit),0), COALESCE(SUM(cash_withdrawal),0), COALESCE(SUM(expenses),0)
                 FROM records WHERE date = %s
             """, (ref_date,))
             dep, wit, exp = cur.fetchone()
+        _closing = session.get('closing_cash')
+        _opening = session.get('opening_cash') or 0
+        if _closing is not None:
+            cash_income = _closing - _opening - float(dep) + float(wit) + float(exp)
+        else:
+            cash_income = 0
         row = {
             'date': ref_date,
             'cash_income': cash_income,
@@ -499,26 +577,69 @@ def get_period_summary(conn, period: str, ref_date: str) -> dict:
 
 
 def _get_rows_for_dates(conn, dates, period, ref_date):
+    """Batch-fetch sessions and admin ops to avoid N+1 per-day queries."""
+    if not dates:
+        return {'period': period, 'date': ref_date, 'rows': [], 'totals': _calc_totals([])}
+
+    start_date, end_date = dates[0], dates[-1]
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            SELECT date, opening_cash, closing_cash, coffee_portions, card_income,
+                   is_finalized, closed_at
+            FROM daily_session
+            WHERE date >= %s AND date <= %s
+        """, (start_date, end_date))
+        sessions = {row['date']: dict(row) for row in cur.fetchall()}
+
+        # Batch admin ops for all dates at once
+        cur.execute("""
+            SELECT date,
+                   COALESCE(SUM(cash_deposit), 0)    AS admin_dep,
+                   COALESCE(SUM(cash_withdrawal), 0) AS admin_wit,
+                   COALESCE(SUM(expenses), 0)        AS expenses
+            FROM records
+            WHERE date >= %s AND date <= %s
+            GROUP BY date
+        """, (start_date, end_date))
+        admin_ops = {row['date']: dict(row) for row in cur.fetchall()}
+
     rows = []
     for d in dates:
-        session = get_session(conn, d)
+        session = sessions.get(d)
         if not session:
             rows.append({
                 'date': d, 'cash_income': 0, 'card_income': 0,
                 'coffee_portions': 0, 'opening_cash': 0,
                 'closing_cash': None, 'is_finalized': False,
+                'admin_deposits': 0, 'admin_withdrawals': 0, 'expenses': 0,
             })
             continue
-        cash_income = max(0, (session.get('closing_cash') or 0) - (session.get('opening_cash') or 0))
+        ops = admin_ops.get(d, {})
+        admin_dep = float(ops.get('admin_dep') or 0)
+        admin_wit = float(ops.get('admin_wit') or 0)
+        exp = float(ops.get('expenses') or 0)
+        _closing = session.get('closing_cash')
+        _opening = float(session.get('opening_cash') or 0)
+        # Correct formula: виручка = closing - opening - вплати + виплати + витрати
+        if _closing is not None:
+            cash_income = float(_closing) - _opening - admin_dep + admin_wit + exp
+        else:
+            cash_income = 0.0
         rows.append({
             'date': d,
-            'cash_income': cash_income,
-            'card_income': session.get('card_income') or 0,
-            'coffee_portions': session.get('coffee_portions') or 0,
-            'opening_cash': session.get('opening_cash') or 0,
-            'closing_cash': session.get('closing_cash'),
+            'cash_income': round(cash_income, 2),
+            'card_income': float(session.get('card_income') or 0),
+            'coffee_portions': int(session.get('coffee_portions') or 0),
+            'opening_cash': _opening,
+            'closing_cash': float(_closing) if _closing is not None else None,
             'is_finalized': bool(session.get('is_finalized')),
+            'admin_deposits': admin_dep,
+            'admin_withdrawals': admin_wit,
+            'expenses': exp,
+            'closed_at': session.get('closed_at'),
         })
+
     totals = _calc_totals(rows)
     return {'period': period, 'date': ref_date, 'rows': rows, 'totals': totals}
 
@@ -557,7 +678,10 @@ def verify_tg_signature(init_data: str, bot_token: str) -> bool:
 
 
 def get_weekly_data(conn):
-    """Returns last 7 days of daily_session data for chart."""
+    """Returns last 7 days of daily_session data for chart.
+    Uses correct revenue formula: closing - opening - deposits + withdrawals + expenses.
+    Batch queries to avoid N+1 per day.
+    """
     today = datetime.now(timezone.utc).date()
     dates = [(today - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
     start_date = dates[0]
@@ -572,13 +696,33 @@ def get_weekly_data(conn):
         """, (start_date, end_date))
         rows = {row['date']: dict(row) for row in cur.fetchall()}
 
+        # Batch admin ops (deposits / withdrawals / expenses) for all 7 days at once
+        cur.execute("""
+            SELECT date,
+                   COALESCE(SUM(cash_deposit), 0)    AS admin_deposits,
+                   COALESCE(SUM(cash_withdrawal), 0) AS admin_withdrawals,
+                   COALESCE(SUM(expenses), 0)        AS expenses
+            FROM records
+            WHERE date >= %s AND date <= %s
+            GROUP BY date
+        """, (start_date, end_date))
+        admin_ops = {row['date']: dict(row) for row in cur.fetchall()}
+
     result = []
     for d in dates:
         if d in rows:
             row = rows[d]
+            ops = admin_ops.get(d, {})
             opening = float(row.get('opening_cash') or 0)
             closing = row.get('closing_cash')
-            cash_income = (float(closing) - opening) if closing is not None else 0
+            admin_dep = float(ops.get('admin_deposits') or 0)
+            admin_wit = float(ops.get('admin_withdrawals') or 0)
+            exp = float(ops.get('expenses') or 0)
+            # Correct formula: виручка = closing - opening - вплати + виплати + витрати
+            if closing is not None:
+                cash_income = float(closing) - opening - admin_dep + admin_wit + exp
+            else:
+                cash_income = 0.0
             result.append({
                 'date': d,
                 'cash_income': round(cash_income, 2),
@@ -598,3 +742,204 @@ def get_weekly_data(conn):
             })
 
     return result
+
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+
+def get_notification_settings(conn, user_id: int) -> dict:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM notification_settings WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+        # Defaults
+        return {
+            'user_id': user_id,
+            'on_snapshot': 1,
+            'on_close_day': 1,
+            'on_swap_request': 1,
+            'remind_snapshot': 1,
+            'notify_shift_assigned': 1,
+        }
+
+
+def set_notification_settings(conn, user_id: int, **fields):
+    allowed = {'on_snapshot', 'on_close_day', 'on_swap_request', 'remind_snapshot', 'notify_shift_assigned'}
+    clean = {k: v for k, v in fields.items() if k in allowed}
+    if not clean:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    cols = ', '.join(['user_id', 'updated_at'] + list(clean.keys()))
+    vals = ', '.join(['%s'] * (2 + len(clean)))
+    updates = ', '.join(f"{k} = EXCLUDED.{k}" for k in clean)
+    with conn.cursor() as cur:
+        cur.execute(f"""
+            INSERT INTO notification_settings (user_id, updated_at, {', '.join(clean.keys())})
+            VALUES (%s, %s, {', '.join(['%s']*len(clean))})
+            ON CONFLICT (user_id) DO UPDATE SET {updates}, updated_at = EXCLUDED.updated_at
+        """, [user_id, now] + list(clean.values()))
+    conn.commit()
+
+
+def get_all_admin_ids(conn) -> list:
+    """Return all approved admin/super_admin user IDs."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT id FROM users
+            WHERE is_approved = 1 AND role IN ('admin', 'super_admin')
+        """)
+        return [row[0] for row in cur.fetchall()] + [ADMIN_ID]
+
+
+def send_tg_message(chat_id: int, text: str, bot_token: str = None):
+    """Send Telegram message via Bot API."""
+    import requests as req
+    token = bot_token or os.environ.get('BOT_TOKEN', '')
+    if not token:
+        return
+    try:
+        req.post(
+            f'https://api.telegram.org/bot{token}/sendMessage',
+            json={'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'},
+            timeout=5
+        )
+    except Exception:
+        pass
+
+
+def notify_admins(conn, text: str, setting_key: str = None):
+    """Send notification to all admins who have the setting enabled."""
+    token = os.environ.get('BOT_TOKEN', '')
+    admin_ids = get_all_admin_ids(conn)
+    for aid in set(admin_ids):
+        if setting_key:
+            s = get_notification_settings(conn, aid)
+            if not s.get(setting_key, 1):
+                continue
+        send_tg_message(aid, text, token)
+
+
+def notify_user(conn, user_id: int, text: str, setting_key: str = None):
+    """Send notification to a specific user if setting allows."""
+    token = os.environ.get('BOT_TOKEN', '')
+    if setting_key:
+        s = get_notification_settings(conn, user_id)
+        if not s.get(setting_key, 1):
+            return
+    send_tg_message(user_id, text, token)
+
+
+# ── Shifts schedule ───────────────────────────────────────────────────────────
+
+def get_shifts_range(conn, date_from: str, date_to: str) -> list:
+    """Get all shifts in date range with worker info."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            SELECT s.*, u.first_name, u.last_name, u.username, u.role
+            FROM shifts s
+            LEFT JOIN users u ON s.user_id = u.id
+            WHERE s.date >= %s AND s.date <= %s
+            ORDER BY s.date ASC, s.shift_num ASC
+        """, (date_from, date_to))
+        rows = []
+        for r in cur.fetchall():
+            d = dict(r)
+            name = ((r['first_name'] or '') + ' ' + (r['last_name'] or '')).strip()
+            d['worker_name'] = name or r['username'] or f"#{r['user_id']}"
+            rows.append(d)
+        return rows
+
+
+def set_shift(conn, date: str, shift_num: int, user_id: int, time_start: str = None,
+              time_end: str = None, notes: str = None, created_by: int = None) -> dict:
+    """Create or update a shift slot."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            INSERT INTO shifts (date, shift_num, user_id, time_start, time_end, notes, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (date, shift_num) DO UPDATE SET
+                user_id = EXCLUDED.user_id,
+                time_start = EXCLUDED.time_start,
+                time_end = EXCLUDED.time_end,
+                notes = EXCLUDED.notes,
+                created_by = EXCLUDED.created_by
+            RETURNING *
+        """, (date, shift_num, user_id, time_start, time_end, notes, created_by))
+        conn.commit()
+        return dict(cur.fetchone())
+
+
+def delete_shift(conn, date: str, shift_num: int):
+    """Remove a shift."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM shifts WHERE date = %s AND shift_num = %s", (date, shift_num))
+    conn.commit()
+
+
+def get_workers(conn) -> list:
+    """Get all approved workers."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            SELECT id, first_name, last_name, username, role
+            FROM users WHERE is_approved = 1
+            ORDER BY first_name, last_name
+        """)
+        rows = []
+        for r in cur.fetchall():
+            d = dict(r)
+            name = ((r['first_name'] or '') + ' ' + (r['last_name'] or '')).strip()
+            d['display_name'] = name or r['username'] or f"#{r['id']}"
+            rows.append(d)
+        return rows
+
+
+def request_swap(conn, requester_id: int, target_id: int, date: str, notes: str = None):
+    """Request a shift swap."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            INSERT INTO shift_swaps (requester_id, target_id, date, notes)
+            VALUES (%s, %s, %s, %s) RETURNING *
+        """, (requester_id, target_id, date, notes))
+        conn.commit()
+        return dict(cur.fetchone())
+
+
+def respond_swap(conn, swap_id: int, user_id: int, accept: bool):
+    """Accept or decline a swap request."""
+    status = 'accepted' if accept else 'declined'
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            UPDATE shift_swaps SET status = %s, responded_at = %s
+            WHERE id = %s AND target_id = %s RETURNING *
+        """, (status, datetime.now(timezone.utc).isoformat(), swap_id, user_id))
+        row = cur.fetchone()
+        if row and accept:
+            # Perform the actual swap
+            d = dict(row)
+            cur.execute("""
+                UPDATE shifts SET user_id = %s
+                WHERE date = %s AND user_id = %s
+            """, (d['requester_id'], d['date'], d['target_id']))
+            cur.execute("""
+                UPDATE shifts SET user_id = %s
+                WHERE date = %s AND user_id = %s
+            """, (d['target_id'], d['date'], d['requester_id']))
+        conn.commit()
+        return dict(row) if row else None
+
+
+def get_pending_swaps(conn, user_id: int) -> list:
+    """Get pending swap requests for a user."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            SELECT ss.*, 
+                   u1.first_name AS req_first, u1.last_name AS req_last, u1.username AS req_username,
+                   u2.first_name AS tgt_first, u2.last_name AS tgt_last
+            FROM shift_swaps ss
+            LEFT JOIN users u1 ON ss.requester_id = u1.id
+            LEFT JOIN users u2 ON ss.target_id = u2.id
+            WHERE (ss.requester_id = %s OR ss.target_id = %s)
+              AND ss.status = 'pending'
+            ORDER BY ss.created_at DESC
+        """, (user_id, user_id))
+        return [dict(r) for r in cur.fetchall()]

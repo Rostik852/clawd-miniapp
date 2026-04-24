@@ -1,4 +1,13 @@
 {
+  "version": 2,
+  "builds": [
+    { "src": "api/[!_]*.py", "use": "@vercel/python" },
+    { "src": "index.html", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/$1.py" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
@@ -7,6 +16,12 @@
         { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
         { "key": "Access-Control-Allow-Headers", "value": "Content-Type, X-Telegram-Init-Data, X-Requested-With" }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/notifications?cron=remind",
+      "schedule": "0 5 * * *"
     }
   ]
 }
