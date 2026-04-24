@@ -600,19 +600,27 @@ document.addEventListener('touchend', function(e) {
   <!-- FAB -->
   <div class="fab-container" id="fabContainer">
     <div class="fab-menu" id="fabMenu">
-      <button class="fab-item" onclick="fabAction('dash')">
+      <button class="fab-item" id="fabItem-dash" data-tab="dash" onclick="fabAction('dash')">
         <span class="fab-item-label">Dashboard</span>
         <span class="fab-item-icon">📊</span>
       </button>
-      <button class="fab-item" onclick="fabAction('enter')">
+      <button class="fab-item" id="fabItem-enter" data-tab="enter" onclick="fabAction('enter')">
         <span class="fab-item-label">Внести</span>
         <span class="fab-item-icon">➕</span>
       </button>
-      <button class="fab-item" onclick="fabAction('export')">
+      <button class="fab-item" id="fabItem-export" data-tab="export" onclick="fabAction('export')">
         <span class="fab-item-label">Витяг</span>
         <span class="fab-item-icon">📥</span>
       </button>
-      <button class="fab-item" onclick="fabAction('profile')">
+      <button class="fab-item" id="fabItem-terminal" data-tab="terminal" onclick="fabAction('terminal')" style="display:none">
+        <span class="fab-item-label">Термінал</span>
+        <span class="fab-item-icon">💳</span>
+      </button>
+      <button class="fab-item" id="fabItem-shifts" data-tab="shifts" onclick="fabAction('shifts')">
+        <span class="fab-item-label">Графік змін</span>
+        <span class="fab-item-icon">📅</span>
+      </button>
+      <button class="fab-item" id="fabItem-profile" data-tab="profile" onclick="fabAction('profile')">
         <span class="fab-item-label">Профіль</span>
         <span class="fab-item-icon">👤</span>
       </button>
@@ -699,6 +707,11 @@ function today() {
   return local.toISOString().slice(0, 10);
 }
 
+function formatLocalDate(date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
 // ── FAB ──────────────────────────────────────────────────────────────────────
 let fabOpen = false;
 function toggleFab() {
@@ -775,12 +788,16 @@ function setupWorkerUI() {
   const dExport = document.getElementById('dItem-export');
   if (dDash) dDash.style.display = 'none';
   if (dExport) dExport.style.display = 'none';
+  const dTerminal = document.getElementById('dItem-terminal');
+  if (dTerminal) dTerminal.style.display = 'none';
 
-  // Hide FAB items for export
-  const fabItems = document.querySelectorAll('.fab-item');
-  fabItems.forEach(item => {
-    if (item.textContent.includes('Витяг')) item.style.display = 'none';
-  });
+  // Hide FAB items unavailable to worker-only roles
+  const fabDash = document.getElementById('fabItem-dash');
+  const fabExport = document.getElementById('fabItem-export');
+  const fabTerminal = document.getElementById('fabItem-terminal');
+  if (fabDash) fabDash.style.display = 'none';
+  if (fabExport) fabExport.style.display = 'none';
+  if (fabTerminal) fabTerminal.style.display = 'none';
 
   // Hide period selector (admin-only)
   const ps = document.getElementById('periodSelector');
@@ -806,6 +823,12 @@ function setupAdminUI() {
     if (dExport) dExport.style.display = 'block';
     const dTerminal = document.getElementById('dItem-terminal');
     if (dTerminal) dTerminal.style.display = 'block';
+    const fabDash = document.getElementById('fabItem-dash');
+    const fabExport = document.getElementById('fabItem-export');
+    const fabTerminal = document.getElementById('fabItem-terminal');
+    if (fabDash) fabDash.style.display = 'flex';
+    if (fabExport) fabExport.style.display = 'flex';
+    if (fabTerminal) fabTerminal.style.display = 'flex';
     const exportTabBtn = document.getElementById('exportTabBtn');
     if (exportTabBtn) exportTabBtn.style.display = 'flex';
   }
@@ -2079,7 +2102,7 @@ init();
       for (let i = 0; i < 14; i++) {
         const d = new Date(mon);
         d.setDate(mon.getDate() + i);
-        dates.push(d.toISOString().slice(0, 10));
+        dates.push(formatLocalDate(d));
       }
       return { from: dates[0], to: dates[dates.length - 1], dates };
     }
@@ -2151,16 +2174,24 @@ init();
         if (!s.time_start || !s.time_end) return;
         const [h1, m1] = s.time_start.split(':').map(Number);
         const [h2, m2] = s.time_end.split(':').map(Number);
+        if ([h1, m1, h2, m2].some(n => Number.isNaN(n))) return;
         let mins = (h2*60+m2) - (h1*60+m1);
         if (mins < 0) mins += 24*60;
-        hoursMap[s.worker_name] = (hoursMap[s.worker_name] || 0) + mins;
+        if (mins <= 0 || mins > 16 * 60) return;
+        const workerKey = String(s.user_id);
+        if (!hoursMap[workerKey]) {
+          hoursMap[workerKey] = { name: s.worker_name, mins: 0, shifts: 0 };
+        }
+        hoursMap[workerKey].mins += mins;
+        hoursMap[workerKey].shifts += 1;
       });
-      const workerEntries = Object.entries(hoursMap);
+      const workerEntries = Object.values(hoursMap);
       if (workerEntries.length) {
         html += `<div class="section-title">⏱ Відпрацьовано в цьому діапазоні</div>
           <div class="breakdown" style="margin-bottom:14px">`;
-        workerEntries.sort((a,b) => b[1]-a[1]).forEach(([name, mins]) => {
-          const h = Math.floor(mins/60), m = mins%60;
+        workerEntries.sort((a,b) => b.mins-a.mins).forEach(worker => {
+          const h = Math.floor(worker.mins/60), m = worker.mins%60;
+          const name = `${worker.name}${worker.shifts > 1 ? ` · ${worker.shifts} зміни` : ` · ${worker.shifts} зміна`}`;
           const timeStr = m ? `${h} год ${m} хв` : `${h} год`;
           html += `<div class="brow"><span class="brow-label">👤 ${name}</span><span class="brow-val">${timeStr}</span></div>`;
         });
@@ -2175,7 +2206,7 @@ init();
         const dayName = _days[(d.getDay() + 6) % 7];
         const dayNum = d.getDate();
         const monthName = _months[d.getMonth()];
-        const isToday = date === new Date().toISOString().slice(0,10);
+        const isToday = date === today();
         const isWeekend = d.getDay() === 0 || d.getDay() === 6;
 
         const s1 = shiftMap[date]?.[1];
