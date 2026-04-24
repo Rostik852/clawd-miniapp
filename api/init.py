@@ -129,7 +129,15 @@ class handler(BaseHTTPRequestHandler):
                     "net_cash": float(summary["net_cash"]),
                     "is_finalized": bool(summary["is_finalized"]),
                     "closed_at": summary.get("closed_at"),
+                    "closed_time": summary.get("closed_time"),
                     "snapshots": summary.get("snapshots", []),
+                    "hourly_sales": summary.get("hourly_sales", []),
+                    "activity_log": summary.get("activity_log", []),
+                    "avg_price_cash": summary.get("avg_price_cash"),
+                    "avg_price_total": summary.get("avg_price_total"),
+                    "saved_avg_price_cash": summary.get("saved_avg_price_cash"),
+                    "saved_avg_price_total": summary.get("saved_avg_price_total"),
+                    "avg_price_context": summary.get("avg_price_context"),
                 }
                 _json_response(self, 200, {
                     "status": "approved",
@@ -167,7 +175,15 @@ class handler(BaseHTTPRequestHandler):
                 "net_cash": float(summary["net_cash"]),
                 "is_finalized": bool(summary["is_finalized"]),
                 "closed_at": summary.get("closed_at"),
+                "closed_time": summary.get("closed_time"),
                 "snapshots": summary.get("snapshots", []),
+                "hourly_sales": summary.get("hourly_sales", []),
+                "activity_log": summary.get("activity_log", []),
+                "avg_price_cash": summary.get("avg_price_cash"),
+                "avg_price_total": summary.get("avg_price_total"),
+                "saved_avg_price_cash": summary.get("saved_avg_price_cash"),
+                "saved_avg_price_total": summary.get("saved_avg_price_total"),
+                "avg_price_context": summary.get("avg_price_context"),
             }
 
             _json_response(self, 200, {

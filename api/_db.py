@@ -37,6 +37,7 @@ def ensure_tables(conn):
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT,
                 date TEXT,
+                event_time TEXT DEFAULT NULL,
                 cash_income REAL DEFAULT 0,
                 card_income REAL DEFAULT 0,
                 coffee_portions INTEGER DEFAULT 0,
@@ -66,6 +67,7 @@ def ensure_tables(conn):
                 is_finalized INTEGER DEFAULT 0,
                 closed_by BIGINT DEFAULT NULL,
                 closed_at TEXT DEFAULT NULL,
+                closed_time TEXT DEFAULT NULL,
                 notes TEXT DEFAULT NULL,
                 avg_price_cash REAL DEFAULT NULL,
                 avg_price_total REAL DEFAULT NULL
@@ -75,11 +77,11 @@ def ensure_tables(conn):
         cur.execute("""
             CREATE TABLE IF NOT EXISTS notification_settings (
                 user_id BIGINT PRIMARY KEY,
-                on_snapshot INTEGER DEFAULT 1,
-                on_close_day INTEGER DEFAULT 1,
-                on_swap_request INTEGER DEFAULT 1,
-                remind_snapshot INTEGER DEFAULT 1,
-                notify_shift_assigned INTEGER DEFAULT 1,
+                on_snapshot INTEGER DEFAULT 0,
+                on_close_day INTEGER DEFAULT 0,
+                on_swap_request INTEGER DEFAULT 0,
+                remind_snapshot INTEGER DEFAULT 0,
+                notify_shift_assigned INTEGER DEFAULT 0,
                 updated_at TEXT DEFAULT (NOW() AT TIME ZONE 'UTC')
             )
         """)
@@ -122,10 +124,20 @@ def ensure_tables(conn):
                 created_at TEXT NOT NULL
             )
         """)
-        # Migrate: add avg_price columns if missing
-        for col, typ in [('avg_price_cash', 'REAL'), ('avg_price_total', 'REAL')]:
+        # Migrate: add columns if missing
+        for table, col, typ in [
+            ('daily_session', 'avg_price_cash', 'REAL'),
+            ('daily_session', 'avg_price_total', 'REAL'),
+            ('daily_session', 'closed_time', 'TEXT'),
+            ('records', 'event_time', 'TEXT'),
+        ]:
             try:
-                cur.execute(f"ALTER TABLE daily_session ADD COLUMN IF NOT EXISTS {col} {typ}")
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {typ}")
+            except Exception:
+                pass
+        for col in ['on_snapshot', 'on_close_day', 'on_swap_request', 'remind_snapshot', 'notify_shift_assigned']:
+            try:
+                cur.execute(f"ALTER TABLE notification_settings ALTER COLUMN {col} SET DEFAULT 0")
             except Exception:
                 pass
         conn.commit()
@@ -161,6 +173,33 @@ def today_str():
     return datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
 
+def _time_to_minutes(time_str):
+    if not time_str:
+        return None
+    try:
+        hh, mm = str(time_str).split(':')[:2]
+        return int(hh) * 60 + int(mm)
+    except Exception:
+        return None
+
+
+def _minutes_to_label(minutes):
+    if minutes is None:
+        return ''
+    minutes = max(0, min(int(minutes), 23 * 60 + 59))
+    return f'{minutes // 60:02d}:{minutes % 60:02d}'
+
+
+def _event_minutes(event):
+    mins = _time_to_minutes(event.get('time'))
+    if mins is not None:
+        return mins
+    created_at = event.get('created_at') or ''
+    if len(created_at) >= 16:
+        return _time_to_minutes(created_at[11:16])
+    return None
+
+
 # ── User management ───────────────────────────────────────────────────────────
 
 def save_user_raw(conn, user_id, username, first_name, last_name):
@@ -181,7 +220,7 @@ def save_user_raw(conn, user_id, username, first_name, last_name):
 def add_record(conn, user_id, date_str, **fields):
     """Insert a new cash-flow record (admin ops: deposits, withdrawals, expenses)."""
     allowed = {
-        'cash_income', 'card_income', 'coffee_portions',
+        'event_time', 'cash_income', 'card_income', 'coffee_portions',
         'cash_deposit', 'cash_withdrawal', 'expenses', 'notes'
     }
     clean = {k: v for k, v in fields.items() if k in allowed}
@@ -320,7 +359,7 @@ def update_session(conn, date_str, **fields):
     """Update daily_session fields for given date."""
     allowed = {
         'opening_cash', 'closing_cash', 'coffee_portions', 'card_income',
-        'is_finalized', 'closed_by', 'closed_at', 'notes',
+        'is_finalized', 'closed_by', 'closed_at', 'closed_time', 'notes',
         'avg_price_cash', 'avg_price_total'
     }
     clean = {k: v for k, v in fields.items() if k in allowed}
@@ -422,6 +461,278 @@ def update_daily_session_field(conn, date_str, **fields):
     conn.commit()
 
 
+def get_record_operations(conn, date_str):
+    """Return normalized record-based operations for the given date."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            SELECT
+                r.id,
+                r.user_id,
+                r.date,
+                r.event_time,
+                r.cash_income,
+                r.card_income,
+                r.coffee_portions,
+                r.cash_deposit,
+                r.cash_withdrawal,
+                r.expenses,
+                r.notes,
+                r.created_at,
+                u.first_name,
+                u.last_name,
+                u.username,
+                u.role
+            FROM records r
+            LEFT JOIN users u ON u.id = r.user_id
+            WHERE r.date = %s
+            ORDER BY COALESCE(r.event_time, SUBSTRING(r.created_at, 12, 5)) ASC, r.created_at ASC, r.id ASC
+        """, (date_str,))
+        rows = [dict(r) for r in cur.fetchall()]
+
+    operations = []
+    for row in rows:
+        worker_name = (
+            ((row.get('first_name') or '') + ' ' + (row.get('last_name') or '')).strip()
+            or row.get('username')
+            or f"#{row['user_id']}"
+        )
+        event_time = row.get('event_time') or ((row.get('created_at') or '')[11:16] if row.get('created_at') else '')
+        amount_map = [
+            ('cash_deposit', 'deposit', 'Вплата', row.get('cash_deposit')),
+            ('cash_withdrawal', 'withdrawal', 'Виплата', row.get('cash_withdrawal')),
+            ('expenses', 'expense', 'Витрата', row.get('expenses')),
+            ('cash_income', 'cash_income', 'Готівка', row.get('cash_income')),
+            ('card_income', 'card_income', 'Картка', row.get('card_income')),
+        ]
+        for field, op_type, label, raw_amount in amount_map:
+            amount = float(raw_amount or 0)
+            if amount == 0:
+                continue
+            operations.append({
+                'id': f"record-{row['id']}-{field}",
+                'source_id': row['id'],
+                'type': op_type,
+                'label': label,
+                'time': event_time,
+                'created_at': row.get('created_at'),
+                'user_id': row['user_id'],
+                'worker_name': worker_name,
+                'amount': amount,
+                'coffee_portions': None,
+                'notes': row.get('notes'),
+            })
+        coffee_portions = row.get('coffee_portions')
+        if coffee_portions:
+            operations.append({
+                'id': f"record-{row['id']}-coffee",
+                'source_id': row['id'],
+                'type': 'coffee_count',
+                'label': 'Порції кави',
+                'time': event_time,
+                'created_at': row.get('created_at'),
+                'user_id': row['user_id'],
+                'worker_name': worker_name,
+                'amount': None,
+                'coffee_portions': int(coffee_portions),
+                'notes': row.get('notes'),
+            })
+    return operations
+
+
+def get_daily_activity(conn, date_str):
+    """Return merged timeline for snapshots, cash ops and close-day action."""
+    activity = []
+
+    for snap in get_snapshots(conn, date_str):
+        activity.append({
+            'id': f"snapshot-{snap['id']}",
+            'source_id': snap['id'],
+            'type': 'snapshot',
+            'label': 'Snapshot',
+            'time': snap.get('time'),
+            'created_at': snap.get('created_at'),
+            'user_id': snap.get('user_id'),
+            'worker_name': snap.get('worker_name'),
+            'amount': float(snap['cash_amount']) if snap.get('cash_amount') is not None else None,
+            'coffee_portions': int(snap['coffee_portions']) if snap.get('coffee_portions') is not None else None,
+            'notes': snap.get('notes'),
+        })
+
+    activity.extend(get_record_operations(conn, date_str))
+
+    session = get_session(conn, date_str)
+    if session and session.get('is_finalized') and session.get('closing_cash') is not None:
+        closer = get_user(conn, session.get('closed_by')) if session.get('closed_by') else None
+        worker_name = 'Адмін'
+        if closer:
+            worker_name = (
+                ((closer.get('first_name') or '') + ' ' + (closer.get('last_name') or '')).strip()
+                or closer.get('username')
+                or f"#{session.get('closed_by')}"
+            )
+        activity.append({
+            'id': f"close-{date_str}",
+            'source_id': date_str,
+            'type': 'close_day',
+            'label': 'Закриття дня',
+            'time': session.get('closed_time') or ((session.get('closed_at') or '')[11:16] if session.get('closed_at') else ''),
+            'created_at': session.get('closed_at'),
+            'user_id': session.get('closed_by'),
+            'worker_name': worker_name,
+            'amount': float(session.get('closing_cash') or 0),
+            'coffee_portions': int(session.get('coffee_portions') or 0),
+            'notes': session.get('notes'),
+        })
+
+    activity.sort(
+        key=lambda item: (
+            _event_minutes(item) if _event_minutes(item) is not None else -1,
+            item.get('created_at') or '',
+            item.get('id') or '',
+        ),
+        reverse=True,
+    )
+    return activity
+
+
+def get_hourly_sales_series(conn, date_str, opening_cash, closing_cash=None, closed_time=None):
+    """Estimate hourly cash revenue from cash measurements adjusted by admin operations."""
+    measurements = []
+    for snap in get_snapshots(conn, date_str):
+        if snap.get('cash_amount') is None:
+            continue
+        measurements.append({
+            'time': snap.get('time'),
+            'created_at': snap.get('created_at'),
+            'cash_amount': float(snap.get('cash_amount') or 0),
+        })
+
+    if closing_cash is not None:
+        measurements.append({
+            'time': closed_time,
+            'created_at': None,
+            'cash_amount': float(closing_cash),
+        })
+
+    measurements = [m for m in measurements if _event_minutes(m) is not None]
+    measurements.sort(key=lambda item: (_event_minutes(item), item.get('created_at') or ''))
+    if not measurements:
+        return []
+
+    record_ops = get_record_operations(conn, date_str)
+    deposits_by_minute = {}
+    withdrawals_by_minute = {}
+    expenses_by_minute = {}
+    for op in record_ops:
+        mins = _event_minutes(op)
+        if mins is None:
+            continue
+        if op['type'] == 'deposit':
+            deposits_by_minute[mins] = deposits_by_minute.get(mins, 0) + float(op['amount'] or 0)
+        elif op['type'] == 'withdrawal':
+            withdrawals_by_minute[mins] = withdrawals_by_minute.get(mins, 0) + float(op['amount'] or 0)
+        elif op['type'] == 'expense':
+            expenses_by_minute[mins] = expenses_by_minute.get(mins, 0) + float(op['amount'] or 0)
+
+    prev_cash = float(opening_cash or 0)
+    prev_minutes = -1
+    hourly = {}
+
+    for point in measurements:
+        point_minutes = _event_minutes(point)
+        dep = sum(v for m, v in deposits_by_minute.items() if prev_minutes < m <= point_minutes)
+        wit = sum(v for m, v in withdrawals_by_minute.items() if prev_minutes < m <= point_minutes)
+        exp = sum(v for m, v in expenses_by_minute.items() if prev_minutes < m <= point_minutes)
+        cash_delta = float(point['cash_amount']) - prev_cash
+        sales_delta = round(cash_delta - dep + wit + exp, 2)
+        hour_key = point_minutes // 60
+        hourly[hour_key] = round(hourly.get(hour_key, 0) + sales_delta, 2)
+        prev_cash = float(point['cash_amount'])
+        prev_minutes = point_minutes
+
+    if not hourly:
+        return []
+
+    start_hour = max(min(hourly.keys()) - 1, 6)
+    end_hour = min(max(hourly.keys()) + 1, 23)
+    return [
+        {
+            'hour': hour,
+            'label': f'{hour:02d}:00',
+            'cash_income': round(hourly.get(hour, 0), 2),
+        }
+        for hour in range(start_hour, end_hour + 1)
+    ]
+
+
+def get_avg_price_context(conn, date_str, cash_income, card_income, coffee_portions):
+    """Return current and comparative average-price metrics."""
+    if not coffee_portions:
+        return None
+
+    current_cash = round(float(cash_income) / coffee_portions, 2)
+    current_total = round((float(cash_income) + float(card_income)) / coffee_portions, 2)
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            SELECT
+                ds.date,
+                ds.opening_cash,
+                ds.closing_cash,
+                ds.card_income,
+                ds.coffee_portions,
+                COALESCE(SUM(r.cash_deposit), 0)    AS admin_deposits,
+                COALESCE(SUM(r.cash_withdrawal), 0) AS admin_withdrawals,
+                COALESCE(SUM(r.expenses), 0)        AS expenses
+            FROM daily_session ds
+            LEFT JOIN records r ON r.date = ds.date
+            WHERE ds.date < %s
+              AND ds.closing_cash IS NOT NULL
+              AND COALESCE(ds.coffee_portions, 0) > 0
+            GROUP BY ds.date, ds.opening_cash, ds.closing_cash, ds.card_income, ds.coffee_portions
+            ORDER BY ds.date DESC
+            LIMIT 14
+        """, (date_str,))
+        history_rows = [dict(row) for row in cur.fetchall()]
+
+    comparisons = []
+    for row in history_rows:
+        portions = int(row.get('coffee_portions') or 0)
+        if portions <= 0:
+            continue
+        cash_val = round(
+            float(row.get('closing_cash') or 0)
+            - float(row.get('opening_cash') or 0)
+            - float(row.get('admin_deposits') or 0)
+            + float(row.get('admin_withdrawals') or 0)
+            + float(row.get('expenses') or 0),
+            2,
+        )
+        total_val = round(cash_val + float(row.get('card_income') or 0), 2)
+        comparisons.append({
+            'date': row['date'],
+            'avg_price_cash': round(cash_val / portions, 2),
+            'avg_price_total': round(total_val / portions, 2),
+        })
+
+    previous_day = comparisons[0] if comparisons else None
+    trailing = comparisons[:7]
+    trailing_cash = round(sum(item['avg_price_cash'] for item in trailing) / len(trailing), 2) if trailing else None
+    trailing_total = round(sum(item['avg_price_total'] for item in trailing) / len(trailing), 2) if trailing else None
+
+    return {
+        'current_cash': current_cash,
+        'current_total': current_total,
+        'previous_day': previous_day,
+        'vs_previous_cash': round(current_cash - previous_day['avg_price_cash'], 2) if previous_day else None,
+        'vs_previous_total': round(current_total - previous_day['avg_price_total'], 2) if previous_day else None,
+        'trailing_7_cash': trailing_cash,
+        'trailing_7_total': trailing_total,
+        'vs_trailing_7_cash': round(current_cash - trailing_cash, 2) if trailing_cash is not None else None,
+        'vs_trailing_7_total': round(current_total - trailing_total, 2) if trailing_total is not None else None,
+    }
+
+
 def get_daily_summary(conn, date_str):
     """
     Returns complete daily summary dict:
@@ -458,7 +769,7 @@ def get_daily_summary(conn, date_str):
         """, (date_str,))
         admin_row = dict(cur.fetchone())
 
-    opening = session.get('opening_cash') or 0
+    opening = float(session.get('opening_cash') or 0)
     closing = session.get('closing_cash')
     admin_deposits = float(admin_row['admin_deposits'])
     admin_withdrawals = float(admin_row['admin_withdrawals'])
@@ -478,12 +789,26 @@ def get_daily_summary(conn, date_str):
     if effective_closing is None and last_snap_cash is not None:
         effective_closing = last_snap_cash
 
+    latest_coffee = next((int(s['coffee_portions']) for s in reversed(snaps) if s.get('coffee_portions') is not None), 0)
+    coffee_portions = int(session.get('coffee_portions') or 0) or latest_coffee
+    card_income = float(session.get('card_income') or 0)
+
     if effective_closing is not None:
-        cash_income = effective_closing - opening - admin_deposits + admin_withdrawals + expenses
-        net_cash = effective_closing
+        cash_income = float(effective_closing) - opening - admin_deposits + admin_withdrawals + expenses
+        net_cash = float(effective_closing)
     else:
-        cash_income = 0
-        net_cash = 0
+        cash_income = 0.0
+        net_cash = 0.0
+
+    hourly_sales = get_hourly_sales_series(
+        conn,
+        date_str,
+        opening_cash=opening,
+        closing_cash=closing,
+        closed_time=session.get('closed_time'),
+    )
+    avg_price_context = get_avg_price_context(conn, date_str, cash_income, card_income, coffee_portions)
+    activity_log = get_daily_activity(conn, date_str)
 
     return {
         'date': date_str,
@@ -491,18 +816,24 @@ def get_daily_summary(conn, date_str):
         'closing_cash': closing,
         'is_finalized': bool(session.get('is_finalized')),
         'closed_at': session.get('closed_at'),
+        'closed_time': session.get('closed_time'),
         'cash_income': round(cash_income, 2),
-        'card_income': float(session.get('card_income') or 0),
-        'coffee_portions': int(session.get('coffee_portions') or 0),
+        'card_income': card_income,
+        'coffee_portions': coffee_portions,
         'admin_deposits': admin_deposits,
         'admin_withdrawals': admin_withdrawals,
         'expenses': expenses,
         'net_cash': round(net_cash, 2),
         'effective_closing': effective_closing,
         'closing_from_snapshot': closing is None and last_snap_cash is not None,
-        'avg_price_cash': session.get('avg_price_cash'),
-        'avg_price_total': session.get('avg_price_total'),
+        'avg_price_cash': round(cash_income / coffee_portions, 2) if coffee_portions > 0 else None,
+        'avg_price_total': round((cash_income + card_income) / coffee_portions, 2) if coffee_portions > 0 else None,
+        'saved_avg_price_cash': session.get('avg_price_cash'),
+        'saved_avg_price_total': session.get('avg_price_total'),
+        'avg_price_context': avg_price_context,
         'snapshots': snaps,
+        'hourly_sales': hourly_sales,
+        'activity_log': activity_log,
     }
 
 
@@ -531,7 +862,7 @@ def get_period_summary(conn, period: str, ref_date: str) -> dict:
     if period == 'day':
         session = get_session(conn, ref_date)
         if not session:
-            return {'period': 'day', 'date': ref_date, 'rows': [], 'totals': {}}
+            return {'period': 'day', 'date': ref_date, 'rows': [], 'totals': {}, 'activity_log': []}
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT COALESCE(SUM(cash_deposit),0), COALESCE(SUM(cash_withdrawal),0), COALESCE(SUM(expenses),0)
@@ -556,11 +887,18 @@ def get_period_summary(conn, period: str, ref_date: str) -> dict:
             'admin_withdrawals': float(wit),
             'expenses': float(exp),
             'closed_at': session.get('closed_at'),
+            'closed_time': session.get('closed_time'),
         }
+        if row['coffee_portions']:
+            row['avg_price_cash'] = round(float(cash_income) / int(row['coffee_portions']), 2)
+            row['avg_price_total'] = round((float(cash_income) + float(row['card_income'] or 0)) / int(row['coffee_portions']), 2)
+        else:
+            row['avg_price_cash'] = None
+            row['avg_price_total'] = None
         snaps = get_snapshots(conn, ref_date)
         row['snapshots'] = [dict(s) for s in snaps]
         totals = _calc_totals([row])
-        return {'period': 'day', 'date': ref_date, 'rows': [row], 'totals': totals}
+        return {'period': 'day', 'date': ref_date, 'rows': [row], 'totals': totals, 'activity_log': get_daily_activity(conn, ref_date)}
 
     elif period == 'week':
         dates = [str(ref - _td(days=i)) for i in range(6, -1, -1)]
@@ -613,6 +951,7 @@ def _get_rows_for_dates(conn, dates, period, ref_date):
                 'coffee_portions': 0, 'opening_cash': 0,
                 'closing_cash': None, 'is_finalized': False,
                 'admin_deposits': 0, 'admin_withdrawals': 0, 'expenses': 0,
+                'avg_price_cash': None, 'avg_price_total': None,
             })
             continue
         ops = admin_ops.get(d, {})
@@ -638,6 +977,8 @@ def _get_rows_for_dates(conn, dates, period, ref_date):
             'admin_withdrawals': admin_wit,
             'expenses': exp,
             'closed_at': session.get('closed_at'),
+            'avg_price_cash': round(float(cash_income) / int(session.get('coffee_portions') or 0), 2) if int(session.get('coffee_portions') or 0) > 0 else None,
+            'avg_price_total': round((float(cash_income) + float(session.get('card_income') or 0)) / int(session.get('coffee_portions') or 0), 2) if int(session.get('coffee_portions') or 0) > 0 else None,
         })
 
     totals = _calc_totals(rows)
@@ -755,11 +1096,11 @@ def get_notification_settings(conn, user_id: int) -> dict:
         # Defaults
         return {
             'user_id': user_id,
-            'on_snapshot': 1,
-            'on_close_day': 1,
-            'on_swap_request': 1,
-            'remind_snapshot': 1,
-            'notify_shift_assigned': 1,
+            'on_snapshot': 0,
+            'on_close_day': 0,
+            'on_swap_request': 0,
+            'remind_snapshot': 0,
+            'notify_shift_assigned': 0,
         }
 
 

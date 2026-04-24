@@ -39,6 +39,7 @@ class handler(BaseHTTPRequestHandler):
         coffee_portions = payload.get('coffee_portions')
         card_income = payload.get('card_income')
         date_str = payload.get('date') or datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        closed_time = payload.get('closed_time')
 
         if not user_id:
             _json(self, 400, {'error': 'user_id required'})
@@ -84,6 +85,7 @@ class handler(BaseHTTPRequestHandler):
                 'is_finalized': 1,
                 'closed_by': user_id,
                 'closed_at': datetime.now(timezone.utc).isoformat(),
+                'closed_time': closed_time,
             }
             if coffee_portions is not None:
                 fields['coffee_portions'] = int(coffee_portions)

@@ -165,6 +165,12 @@
     .avg-row { font-size: 0.92rem; padding: 4px 0; }
     .avg-row.primary { font-weight: 700; color: var(--green); font-size: 1rem; }
     .avg-note { font-size: 0.75rem; color: var(--hint); margin-top: 8px; font-style: italic; }
+    .avg-compare { margin-top: 10px; display: grid; gap: 8px; }
+    .avg-chip { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+    .avg-chip-label { font-size: 0.72rem; color: var(--hint); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+    .avg-chip-value { font-size: 0.92rem; color: var(--text); }
+    .avg-delta-pos { color: var(--green); }
+    .avg-delta-neg { color: var(--red); }
 
     /* BAR CHART */
     .chart-section { margin-bottom: 14px; }
@@ -195,6 +201,12 @@
     .snap-top { display: flex; justify-content: space-between; margin-bottom: 4px; }
     .snap-time { font-weight: 700; color: var(--accent); }
     .snap-detail { color: var(--hint); }
+    .activity-item { background: var(--bg2); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px; border: 1px solid var(--border); }
+    .activity-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .activity-time { color: var(--accent); font-weight: 700; font-size: 0.82rem; min-width: 44px; }
+    .activity-label { font-size: 0.86rem; font-weight: 600; color: var(--text); }
+    .activity-meta { font-size: 0.76rem; color: var(--hint); margin-left: auto; }
+    .activity-detail { font-size: 0.82rem; color: var(--hint); line-height: 1.45; }
 
     /* PROFILE */
     .modules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -465,7 +477,7 @@ document.addEventListener('touchend', function(e) {
             style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.95rem;outline:none;margin-bottom:8px">
           <input type="text" id="depositNote" placeholder="Примітка (необов'язково)"
             style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none;margin-bottom:10px">
-          <button onclick="saveOperation('deposit')"
+          <button id="btnDeposit" onclick="saveOperation('deposit')"
             style="width:100%;background:rgba(76,175,125,0.15);border:1px solid var(--green);color:var(--green);border-radius:10px;padding:11px;font-size:0.9rem;font-weight:600;cursor:pointer">
             💾 Зберегти вплату
           </button>
@@ -477,7 +489,7 @@ document.addEventListener('touchend', function(e) {
             style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.95rem;outline:none;margin-bottom:8px">
           <input type="text" id="withdrawalNote" placeholder="Примітка (необов'язково)"
             style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none;margin-bottom:10px">
-          <button onclick="saveOperation('withdrawal')"
+          <button id="btnWithdrawal" onclick="saveOperation('withdrawal')"
             style="width:100%;background:rgba(224,85,85,0.12);border:1px solid var(--red);color:var(--red);border-radius:10px;padding:11px;font-size:0.9rem;font-weight:600;cursor:pointer">
             💾 Зберегти виплату
           </button>
@@ -682,7 +694,9 @@ function fmtShort(n) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
 }
 
 // ── FAB ──────────────────────────────────────────────────────────────────────
@@ -820,14 +834,14 @@ function selectPeriod(btn) {
 }
 
 // ── DAY STATUS TOAST ─────────────────────────────────────────────────────────
-function updateDayStatus(isFinalized, closedAt) {
+function updateDayStatus(isFinalized, closedAt, closedTime) {
   const toast = document.getElementById('dayStatusToast');
   const text = document.getElementById('dayStatusText');
   if (!toast || !text) return;
   toast.style.display = 'flex';
   if (isFinalized) {
     toast.classList.remove('warn');
-    const time = closedAt ? closedAt.slice(11, 16) : '';
+    const time = closedTime || (closedAt ? closedAt.slice(11, 16) : '');
     text.textContent = '✅ День закрито' + (time ? ' о ' + time : '');
   } else {
     toast.classList.add('warn');
@@ -891,57 +905,109 @@ async function loadDashboard(period) {
   }
 }
 
-function renderHourlyChart(snapshots) {
-  if (!snapshots || !snapshots.length) return '';
-  const START_H = 7, END_H = 20;
-  const W = 320, H = 120;
-  const PAD = { top: 10, right: 10, bottom: 24, left: 40 };
+function renderHourlyChart(hourlySales) {
+  if (!hourlySales || !hourlySales.length) return '';
+  const values = hourlySales.map(point => Number(point.cash_income || 0));
+  if (!values.some(v => v !== 0)) return '';
+  const W = 340, H = 130;
+  const PAD = { top: 12, right: 12, bottom: 26, left: 42 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
-  const points = snapshots
-    .filter(s => s.cash_amount != null && s.time)
-    .map(s => {
-      const [hh, mm] = s.time.split(':').map(Number);
-      return { h: hh + mm / 60, cash: s.cash_amount, coffee: s.coffee_portions || 0 };
-    })
-    .filter(p => p.h >= START_H && p.h <= END_H)
-    .sort((a, b) => a.h - b.h);
-  if (!points.length) return '';
-  const maxCash = Math.max(...points.map(p => p.cash), 1);
-  const toX = h => PAD.left + ((h - START_H) / (END_H - START_H)) * chartW;
-  const toY = v => PAD.top + chartH - (v / maxCash) * chartH;
-  const allPts = [{ h: START_H, cash: 0 }, ...points];
-  const pathD = allPts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${toX(p.h).toFixed(1)} ${toY(p.cash).toFixed(1)}`).join(' ');
-  const areaD = pathD + ` L ${toX(points[points.length-1].h).toFixed(1)} ${(PAD.top + chartH).toFixed(1)} L ${toX(START_H).toFixed(1)} ${(PAD.top + chartH).toFixed(1)} Z`;
-  const dotsHtml = points.map(p => `
-    <circle cx="${toX(p.h).toFixed(1)}" cy="${toY(p.cash).toFixed(1)}" r="4" fill="#C8956C" stroke="var(--bg2)" stroke-width="2"/>
-    <text x="${toX(p.h).toFixed(1)}" y="${(toY(p.cash) - 8).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--hint)">${p.cash.toFixed(0)}</text>
+  const maxAbs = Math.max(...values.map(v => Math.abs(v)), 1);
+  const baselineY = PAD.top + chartH;
+  const stepX = hourlySales.length > 1 ? chartW / (hourlySales.length - 1) : 0;
+  const toX = idx => PAD.left + idx * stepX;
+  const toY = value => baselineY - (value / maxAbs) * chartH;
+  const pathD = hourlySales.map((point, idx) => `${idx === 0 ? 'M' : 'L'} ${toX(idx).toFixed(1)} ${toY(point.cash_income).toFixed(1)}`).join(' ');
+  const areaD = `${pathD} L ${toX(hourlySales.length - 1).toFixed(1)} ${baselineY.toFixed(1)} L ${toX(0).toFixed(1)} ${baselineY.toFixed(1)} Z`;
+  const gridHtml = hourlySales.map((point, idx) => `
+    <line x1="${toX(idx).toFixed(1)}" y1="${PAD.top}" x2="${toX(idx).toFixed(1)}" y2="${baselineY.toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+    <text x="${toX(idx).toFixed(1)}" y="${(baselineY + 16).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--hint)">${point.label}</text>
   `).join('');
-  const hours = [7, 9, 11, 13, 15, 17, 19];
-  const hoursHtml = hours.map(h => `
-    <text x="${toX(h).toFixed(1)}" y="${(PAD.top + chartH + 14).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--hint)">${h}:00</text>
-    <line x1="${toX(h).toFixed(1)}" y1="${PAD.top}" x2="${toX(h).toFixed(1)}" y2="${(PAD.top + chartH).toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+  const dotsHtml = hourlySales.map((point, idx) => `
+    <circle cx="${toX(idx).toFixed(1)}" cy="${toY(point.cash_income).toFixed(1)}" r="4" fill="${point.cash_income >= 0 ? '#4CAF7D' : '#E05555'}" stroke="var(--bg2)" stroke-width="2"/>
+    <text x="${toX(idx).toFixed(1)}" y="${(toY(point.cash_income) - 8).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--hint)">${fmtShort(point.cash_income)}</text>
   `).join('');
-  const yLabel = `<text x="${PAD.left - 6}" y="${(PAD.top + chartH / 2).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--hint)" transform="rotate(-90, ${PAD.left - 6}, ${(PAD.top + chartH / 2).toFixed(1)})">${maxCash.toFixed(0)}</text>`;
   return `
     <div class="hourly-chart">
-      <div class="hourly-chart-title">📈 Динаміка виручки (готівка)</div>
+      <div class="hourly-chart-title">📈 Погодинна динаміка виручки</div>
       <div class="chart-svg-wrap">
         <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="max-width:100%">
           <defs>
-            <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#C8956C" stop-opacity="0.3"/>
-              <stop offset="100%" stop-color="#C8956C" stop-opacity="0.02"/>
+            <linearGradient id="hourlyAreaGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#4CAF7D" stop-opacity="0.24"/>
+              <stop offset="100%" stop-color="#4CAF7D" stop-opacity="0.02"/>
             </linearGradient>
           </defs>
-          ${hoursHtml}
-          <path d="${areaD}" fill="url(#areaGrad)"/>
-          <path d="${pathD}" fill="none" stroke="#C8956C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          ${gridHtml}
+          <line x1="${PAD.left}" y1="${baselineY}" x2="${(W - PAD.right)}" y2="${baselineY}" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+          <path d="${areaD}" fill="url(#hourlyAreaGrad)"/>
+          <path d="${pathD}" fill="none" stroke="#4CAF7D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
           ${dotsHtml}
-          ${yLabel}
         </svg>
       </div>
     </div>`;
+}
+
+function renderActivityLog(activities) {
+  if (!activities || !activities.length) {
+    return '<div class="empty-msg">Операцій за цей день ще немає</div>';
+  }
+  const typeMeta = {
+    snapshot: { icon: '📸', label: 'Snapshot' },
+    deposit: { icon: '📥', label: 'Вплата' },
+    withdrawal: { icon: '📤', label: 'Виплата' },
+    expense: { icon: '🧾', label: 'Витрата' },
+    close_day: { icon: '🔒', label: 'Закриття дня' },
+    cash_income: { icon: '💵', label: 'Готівка' },
+    card_income: { icon: '💳', label: 'Картка' },
+    coffee_count: { icon: '☕', label: 'Порції кави' },
+  };
+  return activities.map(item => {
+    const meta = typeMeta[item.type] || { icon: '•', label: item.label || item.type };
+    const parts = [];
+    if (item.amount !== null && item.amount !== undefined) parts.push(fmt(item.amount));
+    if (item.coffee_portions !== null && item.coffee_portions !== undefined) parts.push(item.coffee_portions + ' шт');
+    if (item.notes) parts.push(item.notes);
+    return `
+      <div class="activity-item">
+        <div class="activity-top">
+          <span class="activity-time">${item.time || '—'}</span>
+          <span class="activity-label">${meta.icon} ${meta.label}</span>
+          <span class="activity-meta">${item.worker_name || ''}</span>
+        </div>
+        <div class="activity-detail">${parts.join(' · ') || 'Без деталей'}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderAvgPriceContext(ctx) {
+  if (!ctx) return '';
+  const chips = [];
+  if (ctx.previous_day) {
+    chips.push(`
+      <div class="avg-chip">
+        <div class="avg-chip-label">До попереднього дня (${ctx.previous_day.date})</div>
+        <div class="avg-chip-value">
+          Готівка: <span class="${(ctx.vs_previous_cash ?? 0) >= 0 ? 'avg-delta-pos' : 'avg-delta-neg'}">${ctx.vs_previous_cash > 0 ? '+' : ''}${(ctx.vs_previous_cash ?? 0).toFixed(2)} zł</span>
+          ${ctx.previous_day.avg_price_total != null ? ` · Загальна: <span class="${(ctx.vs_previous_total ?? 0) >= 0 ? 'avg-delta-pos' : 'avg-delta-neg'}">${ctx.vs_previous_total > 0 ? '+' : ''}${(ctx.vs_previous_total ?? 0).toFixed(2)} zł</span>` : ''}
+        </div>
+      </div>
+    `);
+  }
+  if (ctx.trailing_7_cash != null) {
+    chips.push(`
+      <div class="avg-chip">
+        <div class="avg-chip-label">До середнього за 7 попередніх днів</div>
+        <div class="avg-chip-value">
+          Готівка: <span class="${(ctx.vs_trailing_7_cash ?? 0) >= 0 ? 'avg-delta-pos' : 'avg-delta-neg'}">${ctx.vs_trailing_7_cash > 0 ? '+' : ''}${(ctx.vs_trailing_7_cash ?? 0).toFixed(2)} zł</span>
+          ${ctx.trailing_7_total != null ? ` · Загальна: <span class="${(ctx.vs_trailing_7_total ?? 0) >= 0 ? 'avg-delta-pos' : 'avg-delta-neg'}">${ctx.vs_trailing_7_total > 0 ? '+' : ''}${(ctx.vs_trailing_7_total ?? 0).toFixed(2)} zł</span>` : ''}
+        </div>
+      </div>
+    `);
+  }
+  return chips.length ? `<div class="avg-compare">${chips.join('')}</div>` : '';
 }
 
 let _opInProgress = false;
@@ -973,7 +1039,8 @@ async function saveOperation(type) {
       body: JSON.stringify({
         user_id: currentUser.id,
         init_data: tg?.initData || '',
-        date: now.toISOString().slice(0, 10),
+        date: today(),
+        time: now.toTimeString().slice(0, 5),
         field: fieldMap[type],
         value: val,
         notes: noteEl.value.trim() || null,
@@ -1000,7 +1067,7 @@ async function saveOperation(type) {
 }
 
 function renderDayDashboard(s, container) {
-  updateDayStatus(s.is_finalized, s.closed_at);
+  updateDayStatus(s.is_finalized, s.closed_at, s.closed_time);
 
   const cashIncome    = s.cash_income ?? 0;
   const cardIncome    = s.card_income ?? 0;
@@ -1011,6 +1078,8 @@ function renderDayDashboard(s, container) {
   const adminWit      = s.admin_withdrawals ?? 0;
   const adminDep      = s.admin_deposits ?? 0;
   const expenses      = s.expenses ?? 0;
+  const avgCtx        = s.avg_price_context;
+  const isAdmin       = isAdminUser();
 
   // Avg price — prefer saved value, fallback to calculated
   let avgHtml = '';
@@ -1018,13 +1087,13 @@ function renderDayDashboard(s, container) {
     const avgCash  = s.avg_price_cash  ?? (cashIncome / coffeePortions);
     const avgTotal = s.avg_price_total ?? ((cashIncome + cardIncome) / coffeePortions);
     const hasCard  = cardIncome > 0;
-    const savedLabel = s.avg_price_cash ? '' : '<span style="font-size:0.65rem;color:var(--hint)"> (закрий день для збереження)</span>';
     avgHtml = `
       <div class="avg-price-card">
-        <div class="avg-title">☕ Середня ціна порції${savedLabel}</div>
+        <div class="avg-title">☕ Середня ціна порції</div>
         <div class="avg-row${!hasCard ? ' primary' : ''}">💵 Готівкова: ${avgCash.toFixed(2)} zł</div>
         ${hasCard ? `<div class="avg-row primary">💳 Загальна: ${avgTotal.toFixed(2)} zł</div>` : ''}
         ${!hasCard ? '<div class="avg-note">(картку не внесено)</div>' : ''}
+        ${renderAvgPriceContext(avgCtx)}
       </div>`;
   }
 
@@ -1074,7 +1143,7 @@ function renderDayDashboard(s, container) {
       </div>
     </div>
 
-    ${renderHourlyChart(snaps)}
+    ${renderHourlyChart(s.hourly_sales || [])}
 
     ${avgHtml}
 
@@ -1095,6 +1164,8 @@ function renderDayDashboard(s, container) {
 
     <div class="section-title">📸 Snapshots за день ${snaps.length ? `<span style="font-weight:400;color:var(--hint)">(${snaps.length} шт)</span>` : ''}</div>
     <div id="snapshotsList">${snapsHtml}</div>
+
+    ${isAdmin ? `<div class="section-title" style="margin-top:14px">🧾 Усі операції за день</div><div>${renderActivityLog(s.activity_log || [])}</div>` : ''}
   `;
 }
 
@@ -1153,11 +1224,12 @@ function renderAnalytics(data, container) {
     const editBtn = isAdminUser() ?
       `<button onclick="openEditDayById('${r.date}')"
         style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:0.85rem;padding:2px 6px" title="Редагувати">✏️</button>` : '';
+    const avgHint = r.avg_price_cash != null ? `<span style="font-size:0.72rem;color:var(--hint)"> · ср. ${Number(r.avg_price_cash).toFixed(2)} zł${r.avg_price_total != null && r.card_income ? ` / ${Number(r.avg_price_total).toFixed(2)} zł` : ''}</span>` : '';
     // Store row data for edit lookup
     window._analyticsRows = window._analyticsRows || {};
     window._analyticsRows[r.date] = r;
     return `<div class="brow">
-      <span class="brow-label">${statusIcon} ${r.date}${editBtn}</span>
+      <span class="brow-label">${statusIcon} ${r.date}${editBtn}${avgHint}</span>
       <span class="brow-val pos">${fmt(r.cash_income)}${r.card_income ? ' + ' + fmt(r.card_income) : ''}</span>
     </div>`;
   }).join('');
@@ -1555,7 +1627,7 @@ init();
       const payload = {
         user_id: currentUser.id,
         init_data: tg?.initData || '',
-        date: now.toISOString().slice(0, 10),
+        date: today(),
         time: now.toTimeString().slice(0, 5),
         cash_amount: cashVal ? cashVal : null,
         coffee_portions: coffeeVal ? parseInt(coffeeVal) : null,
@@ -1604,7 +1676,7 @@ init();
 
       // If already finalized, show summary + edit option
       if (summaryData && summaryData.is_finalized) {
-        const ct = summaryData.closed_at ? summaryData.closed_at.slice(11,16) : '';
+        const ct = summaryData.closed_time || (summaryData.closed_at ? summaryData.closed_at.slice(11,16) : '');
         body.innerHTML = `
           <div style="text-align:center;padding:8px 0 16px">
             <div style="font-size:2rem;margin-bottom:6px">✅</div>
@@ -1781,7 +1853,8 @@ init();
             closing_cash: closeDayData.closing_cash,
             coffee_portions: closeDayData.coffee_portions,
             card_income: closeDayData.card_income,
-            date: dateStr
+            date: dateStr,
+            closed_time: timeStr
           })
         });
         const data = await resp.json();
@@ -1812,7 +1885,7 @@ init();
         const data = await fetch(`${API}/api/data?type=summary&user_id=${currentUser.id}`).then(r => r.json());
         const banner = document.getElementById('enterStatusBanner');
         if (banner) {
-          const ct = data.closed_at ? data.closed_at.slice(11, 16) : '';
+          const ct = data.closed_time || (data.closed_at ? data.closed_at.slice(11, 16) : '');
           if (data.is_finalized) {
             banner.className = 'status-banner banner-closed';
             banner.textContent = '✅ Закрито' + (ct ? ' о ' + ct : '');

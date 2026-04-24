@@ -45,6 +45,7 @@ class handler(BaseHTTPRequestHandler):
         value = body.get('value')
         notes = body.get('notes', None)
         date = body.get('date', today_str())
+        event_time = body.get('time')
         init_data = body.get('init_data', '')
 
         # Validate required fields
@@ -107,11 +108,11 @@ class handler(BaseHTTPRequestHandler):
             with conn.cursor() as cur:
                 # Use parameterized column name safely (validated against FIELD_MAP above)
                 sql = f"""
-                    INSERT INTO records (user_id, date, {db_column}, notes, created_at)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO records (user_id, date, event_time, {db_column}, notes, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """
-                cur.execute(sql, (user_id, date, value, notes, created_at))
+                cur.execute(sql, (user_id, date, event_time, value, notes, created_at))
                 record_id = cur.fetchone()[0]
                 conn.commit()
 
@@ -123,6 +124,7 @@ class handler(BaseHTTPRequestHandler):
                 "db_column": db_column,
                 "value": value,
                 "date": date,
+                "time": event_time,
             })
 
         except Exception as e:
