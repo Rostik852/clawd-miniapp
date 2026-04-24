@@ -1,7 +1,7 @@
 """
 Shifts API — Vercel Serverless Function
 GET  /api/shifts?user_id=...&from=YYYY-MM-DD&to=YYYY-MM-DD
-POST /api/shifts   {action: set|delete|swap_request|swap_respond, ...}
+POST /api/shifts   {action: set|batch_set|delete|swap_request|swap_respond, ...}
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -134,9 +134,68 @@ class handler(BaseHTTPRequestHandler):
                 # Always notify admins about new shifts (including when admin sets own shift)
                 notify_admins(conn,
                     f'📅 <b>Зміну виставлено</b>\n👤 {wname}\n{shift_info}',
-                    setting_key='notify_shift_assigned'
+                    setting_key='on_shift_assigned'
                 )
                 _json(self, 200, {'ok': True, 'shift': shift})
+
+            elif action == 'batch_set':
+                if not is_admin(conn, uid):
+                    _json(self, 403, {'error': 'admin only'})
+                    return
+                worker_id = int(body['worker_id'])
+                assignments = body.get('assignments') or []
+                if not isinstance(assignments, list) or not assignments:
+                    _json(self, 400, {'error': 'assignments required'})
+                    return
+
+                notify_worker = body.get('notify_worker', True)
+                worker_user = get_user(conn, worker_id) if worker_id != ADMIN_ID else None
+                wname = 'ĐĐ´ĐĽŃ–Đ˝'
+                if worker_user:
+                    n = ((worker_user.get('first_name') or '') + ' ' + (worker_user.get('last_name') or '')).strip()
+                    wname = n or worker_user.get('username') or f'#{worker_id}'
+
+                saved = []
+                for item in assignments:
+                    date_val = item.get('date')
+                    shift_num = int(item.get('shift_num', 0) or 0)
+                    if not date_val:
+                        continue
+                    if shift_num not in (1, 2):
+                        continue
+                    shift = set_shift(
+                        conn,
+                        date=date_val,
+                        shift_num=shift_num,
+                        user_id=worker_id,
+                        time_start=item.get('time_start'),
+                        time_end=item.get('time_end'),
+                        notes=item.get('notes'),
+                        created_by=uid,
+                    )
+                    saved.append(shift)
+
+                if not saved:
+                    _json(self, 400, {'error': 'no valid assignments'})
+                    return
+
+                if notify_worker and worker_id != uid:
+                    preview = ', '.join(f"{item['date']} ({item.get('shift_num', 1)})" for item in assignments[:8] if item.get('date'))
+                    if len(saved) > 8:
+                        preview += f" +{len(saved) - 8}"
+                    notify_user(
+                        conn,
+                        worker_id,
+                        f'đź“… <b>Đ—ĐĽŃ–Đ˝Đ¸ Đ´ĐľĐ´Đ°Đ˝Đľ ĐżĐ°ĐşĐµŃ‚Đ˝Đľ</b>\nđź‘¤ {wname}\n{preview}',
+                        setting_key='notify_shift_assigned'
+                    )
+
+                notify_admins(
+                    conn,
+                    f'đź“… <b>ĐźĐ°ĐşĐµŃ‚Đ˝Đľ Đ´ĐľĐ´Đ°Đ˝Đľ Đ·ĐĽŃ–Đ˝Đ¸</b>\nđź‘¤ {wname}\nĐšÑ–Ð»ÑŒÐºÑ–ÑÑ‚ÑŒ: {len(saved)}',
+                    setting_key='on_shift_assigned'
+                )
+                _json(self, 200, {'ok': True, 'count': len(saved), 'shifts': saved})
 
             elif action == 'delete':
                 if not is_admin(conn, uid):

@@ -2,7 +2,7 @@
 Notifications API
 GET  /api/notifications?user_id=...         — get settings
 POST /api/notifications   {action: update_settings | remind_check}
-  update_settings: {user_id, on_snapshot?, on_close_day?, on_swap_request?, remind_snapshot?, notify_shift_assigned?}
+  update_settings: {user_id, on_snapshot?, on_close_day?, on_swap_request?, on_shift_assigned?, remind_snapshot?, notify_shift_assigned?}
   remind_check: called by cron — checks shifts ending in 10 min and sends reminders
 """
 import sys, os
@@ -108,7 +108,7 @@ class handler(BaseHTTPRequestHandler):
                     _json(self, 403, {'error': 'forbidden'})
                     return
                 allowed_keys = {
-                    'on_snapshot', 'on_close_day', 'on_swap_request',
+                    'on_snapshot', 'on_close_day', 'on_swap_request', 'on_shift_assigned',
                     'remind_snapshot', 'notify_shift_assigned'
                 }
                 updates = {k: int(bool(v)) for k, v in body.items() if k in allowed_keys}

@@ -341,6 +341,16 @@
     .hourly-chart { background: var(--bg2); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; border: 1px solid var(--border); }
     .hourly-chart-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--hint); margin-bottom: 12px; font-weight: 600; }
     .chart-svg-wrap { width: 100%; overflow-x: auto; }
+    @media print {
+      body { background: #fff; color: #111; }
+      #loadScreen, #pendingScreen, #errorScreen, .header, .fab-container, .toast, .drawer-overlay, .drawer, .backdrop, .modal, #editDayBackdrop, #editDayModal { display: none !important; }
+      #appScreen, .tab-content, #tab-shifts, #shiftsContainer { display: block !important; height: auto !important; overflow: visible !important; }
+      .tab-pane { display: none !important; opacity: 1 !important; }
+      #tab-shifts { display: block !important; }
+      button { visibility: hidden; }
+      #shiftsContainer, #shiftsContainer * { visibility: visible; }
+      #shiftsContainer { position: static; width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -2064,6 +2074,50 @@ init();
       block.innerHTML = html;
     }
 
+    NOTIF_LABELS.on_shift_assigned = { label: 'Нова зміна в графіку (адмін)', who: 'admin', icon: '📅' };
+
+    renderNotifSettings = function() {
+      const s = _notifSettings;
+      if (!s) return;
+      const isAdm = isAdminUser();
+      const block = document.getElementById('notifSettingsBlock');
+      if (!block) return;
+
+      const adminKeys = ['on_snapshot', 'on_close_day', 'on_swap_request', 'on_shift_assigned'];
+      const workerKeys = ['remind_snapshot', 'notify_shift_assigned'];
+      const myKeys = isAdm ? [...adminKeys, ...workerKeys] : workerKeys;
+
+      let html = '<div class="breakdown">';
+      myKeys.forEach(key => {
+        const meta = NOTIF_LABELS[key];
+        const enabled = !!s[key];
+        html += `<div class="brow">
+          <span class="brow-label">${meta.icon} ${meta.label}</span>
+          <label style="position:relative;display:inline-block;width:40px;height:22px;cursor:pointer">
+            <input type="checkbox" id="notif_${key}" ${enabled ? 'checked' : ''}
+              onchange="saveNotifSetting('${key}', this.checked)"
+              style="opacity:0;width:0;height:0;position:absolute">
+            <span id="notif_toggle_${key}" style="position:absolute;inset:0;border-radius:11px;transition:.2s;background:${enabled ? 'var(--green)' : '#334'};border:1px solid ${enabled ? 'var(--green)' : '#445'}">
+              <span style="position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:2px;transition:.2s;left:${enabled ? '20px' : '2px'}"></span>
+            </span>
+          </label>
+        </div>`;
+      });
+      html += '</div>';
+
+      if (isAdm) {
+        html += `<div class="section-title" style="margin-top:14px">Сповіщення для працівників</div>
+          <div class="breakdown">
+            <div class="brow" style="flex-direction:column;align-items:flex-start;gap:4px">
+              <span style="font-size:0.8rem;color:var(--hint)">При додаванні зміни в графік можна окремо вирішити, чи повідомляти працівника.</span>
+              <span style="font-size:0.75rem;color:var(--hint)">Адмінський тумблер вище керує тільки повідомленнями для адміністраторів.</span>
+            </div>
+          </div>`;
+      }
+
+      block.innerHTML = html;
+    }
+
     async function saveNotifSetting(key, value) {
       if (!currentUser) return;
       const toggle = document.getElementById(`notif_toggle_${key}`);
@@ -2092,8 +2146,22 @@ init();
     // ── SHIFTS TAB ─────────────────────────────────────────────────────────────
     let shiftsData = { shifts: [], workers: [], pending_swaps: [], is_admin: false };
     let shiftsWeekOffset = 0;
+    let shiftsViewMode = 'biweek';
+
+    function shiftsMonthRange() {
+      const base = new Date();
+      base.setMonth(base.getMonth() + shiftsWeekOffset);
+      const monthStart = new Date(base.getFullYear(), base.getMonth(), 1);
+      const monthEnd = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+      const dates = [];
+      for (let d = new Date(monthStart); d <= monthEnd; d.setDate(d.getDate() + 1)) {
+        dates.push(formatLocalDate(d));
+      }
+      return { from: dates[0], to: dates[dates.length - 1], dates, title: `${monthStart.toLocaleString('uk-UA', { month: 'long' })} ${monthStart.getFullYear()}` };
+    }
 
     function shiftsDateRange() {
+      if (shiftsViewMode === 'month') return shiftsMonthRange();
       const today = new Date();
       today.setDate(today.getDate() + shiftsWeekOffset * 7);
       const mon = new Date(today);
@@ -2104,7 +2172,7 @@ init();
         d.setDate(mon.getDate() + i);
         dates.push(formatLocalDate(d));
       }
-      return { from: dates[0], to: dates[dates.length - 1], dates };
+      return { from: dates[0], to: dates[dates.length - 1], dates, title: `${dates[0].slice(5)} — ${dates[dates.length - 1].slice(5)}` };
     }
 
     async function loadShifts() {
@@ -2119,8 +2187,30 @@ init();
       }
     }
 
+    function setShiftsViewMode(mode) {
+      shiftsViewMode = mode === 'month' ? 'month' : 'biweek';
+      shiftsWeekOffset = 0;
+      loadShifts();
+    }
+
+    function printShiftsPdf() {
+      showTab('shifts');
+      setTimeout(() => window.print(), 120);
+    }
+
+    function shiftDurationMinutes(shift) {
+      if (!shift?.time_start || !shift?.time_end) return 0;
+      const [h1, m1] = shift.time_start.split(':').map(Number);
+      const [h2, m2] = shift.time_end.split(':').map(Number);
+      if ([h1, m1, h2, m2].some(n => Number.isNaN(n))) return 0;
+      let mins = (h2 * 60 + m2) - (h1 * 60 + m1);
+      if (mins < 0) mins += 24 * 60;
+      if (mins <= 0 || mins > 16 * 60) return 0;
+      return mins;
+    }
+
     function renderShifts() {
-      const { dates } = shiftsDateRange();
+      const { dates, title } = shiftsDateRange();
       const shiftMap = {};
       shiftsData.shifts.forEach(s => {
         if (!shiftMap[s.date]) shiftMap[s.date] = {};
@@ -2139,6 +2229,12 @@ init();
             ${dates[0].slice(5)} — ${dates[13].slice(5)}
           </div>
           <button onclick="shiftsWeekOffset++;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">›</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <button class="mode-btn ${shiftsViewMode === 'biweek' ? 'active' : ''}" onclick="setShiftsViewMode('biweek')">2 тижні</button>
+          <button class="mode-btn ${shiftsViewMode === 'month' ? 'active' : ''}" onclick="setShiftsViewMode('month')">Місяць</button>
+          ${isAdm ? `<button class="mode-btn" onclick="openBatchShiftPlanner()">Пакетно</button>` : ''}
+          <button class="mode-btn" onclick="printShiftsPdf()">PDF</button>
         </div>
       `;
 
@@ -2171,13 +2267,8 @@ init();
       // ── Hours summary per worker ──────────────────────────────────────────
       const hoursMap = {};
       shiftsData.shifts.forEach(s => {
-        if (!s.time_start || !s.time_end) return;
-        const [h1, m1] = s.time_start.split(':').map(Number);
-        const [h2, m2] = s.time_end.split(':').map(Number);
-        if ([h1, m1, h2, m2].some(n => Number.isNaN(n))) return;
-        let mins = (h2*60+m2) - (h1*60+m1);
-        if (mins < 0) mins += 24*60;
-        if (mins <= 0 || mins > 16 * 60) return;
+        const mins = shiftDurationMinutes(s);
+        if (!mins) return;
         const workerKey = String(s.user_id);
         if (!hoursMap[workerKey]) {
           hoursMap[workerKey] = { name: s.worker_name, mins: 0, shifts: 0 };
@@ -2300,6 +2391,404 @@ init();
     }
 
     function openEditShift(date, num, wid, ts, te) { openAddShift(date, num, wid, ts, te); }
+
+    function openBatchShiftPlanner() {
+      const workers = shiftsData.workers || [];
+      const workerOpts = workers.map(w => `<option value="${w.id}">${w.display_name} (${w.role})</option>`).join('');
+      showModal(`
+        <div class="modal-title">📅 Пакетне призначення змін</div>
+        <div style="margin-bottom:10px">
+          <div class="card-label" style="margin-bottom:4px">Працівник</div>
+          <select id="batchWorker" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+            <option value="">Оберіть...</option>${workerOpts}
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="flex:1">
+            <div class="card-label" style="margin-bottom:4px">Початок</div>
+            <input type="date" id="batchStartDate" value="${today()}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
+          </div>
+          <div style="flex:1">
+            <div class="card-label" style="margin-bottom:4px">Кінець</div>
+            <input type="date" id="batchEndDate" value="${today()}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button class="mode-btn active" id="batchShift1" data-shift-num="1" onclick="selectBatchShift(1,this)">1-ша зміна</button>
+          <button class="mode-btn" id="batchShift2" onclick="selectBatchShift(2,this)">2-га зміна</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="flex:1">
+            <div class="card-label" style="margin-bottom:4px">Початок зміни</div>
+            <input type="time" id="batchShiftStart" value="${SHIFT_DEFAULTS[1].start}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
+          </div>
+          <div style="flex:1">
+            <div class="card-label" style="margin-bottom:4px">Кінець зміни</div>
+            <input type="time" id="batchShiftEnd" value="${SHIFT_DEFAULTS[1].end}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <div class="card-label" style="margin-bottom:6px">Дні</div>
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">
+            <label style="font-size:0.78rem;color:var(--text)"><input type="checkbox" class="batchDow" value="1" checked> Пн</label>
+            <label style="font-size:0.78rem;color:var(--text)"><input type="checkbox" class="batchDow" value="2" checked> Вт</label>
+            <label style="font-size:0.78rem;color:var(--text)"><input type="checkbox" class="batchDow" value="3" checked> Ср</label>
+            <label style="font-size:0.78rem;color:var(--text)"><input type="checkbox" class="batchDow" value="4" checked> Чт</label>
+            <label style="font-size:0.78rem;color:var(--text)"><input type="checkbox" class="batchDow" value="5" checked> Пт</label>
+            <label style="font-size:0.78rem;color:var(--text)"><input type="checkbox" class="batchDow" value="6"> Сб</label>
+            <label style="font-size:0.78rem;color:var(--text)"><input type="checkbox" class="batchDow" value="0"> Нд</label>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:8px">
+          <input type="checkbox" id="batchNotifyWorker" style="width:16px;height:16px;cursor:pointer">
+          <label for="batchNotifyWorker" style="font-size:0.82rem;color:var(--hint);cursor:pointer">🔔 Повідомити працівника</label>
+        </div>
+        <button onclick="saveBatchShifts()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">💾 Застосувати</button>
+        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">Скасувати</button>
+      `);
+    }
+
+    function selectBatchShift(shiftNum, btn) {
+      document.getElementById('batchShift1')?.classList.toggle('active', shiftNum === 1);
+      document.getElementById('batchShift2')?.classList.toggle('active', shiftNum === 2);
+      const defaults = SHIFT_DEFAULTS[shiftNum] || SHIFT_DEFAULTS[1];
+      document.getElementById('batchShiftStart').value = defaults.start;
+      document.getElementById('batchShiftEnd').value = defaults.end;
+      document.getElementById('batchShift1').dataset.shiftNum = String(shiftNum);
+    }
+
+    function collectBatchAssignments() {
+      const start = document.getElementById('batchStartDate')?.value;
+      const end = document.getElementById('batchEndDate')?.value;
+      const selected = [...document.querySelectorAll('.batchDow:checked')].map(el => Number(el.value));
+      const shiftNum = Number(document.getElementById('batchShift1')?.dataset.shiftNum || 1);
+      const timeStart = document.getElementById('batchShiftStart')?.value || null;
+      const timeEnd = document.getElementById('batchShiftEnd')?.value || null;
+      if (!start || !end || start > end || !selected.length) return [];
+      const assignments = [];
+      for (let d = new Date(start + 'T00:00:00'); formatLocalDate(d) <= end; d.setDate(d.getDate() + 1)) {
+        if (selected.includes(d.getDay())) {
+          assignments.push({
+            date: formatLocalDate(d),
+            shift_num: shiftNum,
+            time_start: timeStart,
+            time_end: timeEnd,
+          });
+        }
+      }
+      return assignments;
+    }
+
+    async function saveBatchShifts() {
+      const workerId = document.getElementById('batchWorker')?.value;
+      if (!workerId) { showToast('⚠️ Оберіть працівника'); return; }
+      const assignments = collectBatchAssignments();
+      if (!assignments.length) { showToast('⚠️ Немає вибраних днів'); return; }
+      try {
+        const res = await fetch(`${API}/api/shifts`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            user_id: currentUser.id,
+            action: 'batch_set',
+            worker_id: Number(workerId),
+            notify_worker: document.getElementById('batchNotifyWorker')?.checked === true,
+            assignments,
+          })
+        });
+        const d = await res.json();
+        if (d.ok) {
+          closeModal();
+          showToast(`✅ Додано ${d.count} змін`);
+          loadShifts();
+        } else {
+          showToast('❌ ' + (d.error || 'Помилка'));
+        }
+      } catch(e) {
+        showToast('❌ Помилка зʼєднання');
+      }
+    }
+
+    renderShifts = function() {
+      const { dates, title } = shiftsDateRange();
+      const shiftMap = {};
+      shiftsData.shifts.forEach(shift => {
+        if (!shiftMap[shift.date]) shiftMap[shift.date] = {};
+        shiftMap[shift.date][shift.shift_num] = shift;
+      });
+
+      const swaps = shiftsData.pending_swaps || [];
+      const isAdm = shiftsData.is_admin;
+      const dayFmt = new Intl.DateTimeFormat('uk-UA', { weekday: 'short' });
+      const monthFmt = new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short' });
+
+      let html = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <button onclick="shiftsWeekOffset--;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">‹</button>
+          <div style="font-size:0.8rem;color:var(--hint);text-align:center">${title}</div>
+          <button onclick="shiftsWeekOffset++;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">›</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <button class="mode-btn ${shiftsViewMode === 'biweek' ? 'active' : ''}" onclick="setShiftsViewMode('biweek')">2 тижні</button>
+          <button class="mode-btn ${shiftsViewMode === 'month' ? 'active' : ''}" onclick="setShiftsViewMode('month')">Місяць</button>
+          ${isAdm ? `<button class="mode-btn" onclick="openBatchShiftPlanner()">Пакетно</button>` : ''}
+          <button class="mode-btn" onclick="printShiftsPdf()">PDF</button>
+        </div>
+      `;
+
+      if (swaps.length) {
+        html += `<div class="section-title">🔄 Запити на обмін (${swaps.length})</div>`;
+        swaps.forEach(sw => {
+          const iAmRequester = sw.requester_id === currentUser.id;
+          const iAmTarget = sw.target_id === currentUser.id;
+          const reqName = ((sw.req_first || '') + ' ' + (sw.req_last || '')).trim() || sw.req_username || `#${sw.requester_id}`;
+          const tgtName = ((sw.tgt_first || '') + ' ' + (sw.tgt_last || '')).trim() || `#${sw.target_id}`;
+          html += `<div class="breakdown" style="margin-bottom:8px">
+            <div class="brow" style="flex-direction:column;align-items:flex-start;gap:6px">
+              <div style="font-size:0.82rem;color:var(--text)">
+                ${iAmRequester ? '📤 Ваш запит' : `📥 Запит від <strong>${reqName}</strong>`}
+                → <strong>${sw.date}</strong>
+              </div>
+              ${sw.notes ? `<div style="font-size:0.72rem;color:var(--hint)">${sw.notes}</div>` : ''}
+              <div style="display:flex;gap:6px;margin-top:2px">
+                ${iAmTarget ? `
+                  <button onclick="respondSwap(${sw.id},true)" style="background:rgba(76,175,125,0.2);border:1px solid var(--green);color:var(--green);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Прийняти</button>
+                  <button onclick="respondSwap(${sw.id},false)" style="background:rgba(224,85,85,0.1);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Відхилити</button>
+                ` : `<span style="font-size:0.73rem;color:var(--hint)">Очікує відповіді від ${tgtName}</span>`}
+              </div>
+            </div>
+          </div>`;
+        });
+      }
+
+      const hoursMap = {};
+      shiftsData.shifts.forEach(shift => {
+        const mins = shiftDurationMinutes(shift);
+        if (!mins) return;
+        const workerKey = String(shift.user_id);
+        if (!hoursMap[workerKey]) {
+          hoursMap[workerKey] = { name: shift.worker_name, mins: 0, shifts: 0 };
+        }
+        hoursMap[workerKey].mins += mins;
+        hoursMap[workerKey].shifts += 1;
+      });
+
+      const workerEntries = Object.values(hoursMap);
+      if (workerEntries.length) {
+        html += `<div class="section-title">⏱ Відпрацьовано в цьому діапазоні</div><div class="breakdown" style="margin-bottom:14px">`;
+        workerEntries.sort((a, b) => b.mins - a.mins).forEach(worker => {
+          const h = Math.floor(worker.mins / 60);
+          const m = worker.mins % 60;
+          const label = `${worker.name} · ${worker.shifts} ${worker.shifts === 1 ? 'зміна' : 'зміни'}`;
+          const timeStr = m ? `${h} год ${m} хв` : `${h} год`;
+          html += `<div class="brow"><span class="brow-label">👤 ${label}</span><span class="brow-val">${timeStr}</span></div>`;
+        });
+        html += `</div>`;
+      }
+
+      html += `<div class="section-title">${shiftsViewMode === 'month' ? '📅 Місячний графік змін' : '📅 Графік на 2 тижні'}</div>`;
+
+      dates.forEach(date => {
+        const d = new Date(date + 'T00:00:00');
+        const isToday = date === today();
+        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+        const s1 = shiftMap[date]?.[1];
+        const s2 = shiftMap[date]?.[2];
+
+        const shiftBlock = (shift, num) => {
+          if (!shift) {
+            if (!isAdm) return '';
+            return `<button onclick="openAddShift('${date}',${num})" style="flex:1;background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:var(--hint);font-size:0.75rem;cursor:pointer;text-align:center">+ Зміна ${num}</button>`;
+          }
+          const myShift = shift.user_id === currentUser.id;
+          return `<div style="flex:1;background:${myShift ? 'rgba(200,149,108,0.15)' : 'rgba(40,50,100,0.5)'};border:1px solid ${myShift ? 'var(--accent)' : 'rgba(60,80,180,0.3)'};border-radius:8px;padding:8px;position:relative">
+            <div style="font-size:0.72rem;color:var(--hint)">Зміна ${num}</div>
+            <div style="font-size:0.82rem;font-weight:600;color:${myShift ? 'var(--accent)' : 'var(--text)'}">${shift.worker_name}</div>
+            ${shift.time_start ? `<div style="font-size:0.7rem;color:var(--hint)">${shift.time_start}–${shift.time_end || '?'}</div>` : ''}
+            <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
+              ${myShift && !isAdm ? `<button onclick="openSwapRequest('${date}',${shift.user_id})" style="background:rgba(91,155,213,0.15);border:1px solid var(--blue);color:var(--blue);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">🔄 Обмін</button>` : ''}
+              ${isAdm ? `<button onclick="openEditShift('${date}',${num},${shift.user_id},'${shift.time_start || ''}','${shift.time_end || ''}')" style="background:none;border:1px solid rgba(255,255,255,0.1);color:var(--hint);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">✏️</button>` : ''}
+              ${isAdm ? `<button onclick="deleteShift('${date}',${num})" style="background:none;border:1px solid var(--red);color:var(--red);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">🗑</button>` : ''}
+            </div>
+          </div>`;
+        };
+
+        html += `<div style="background:${isToday ? 'rgba(200,149,108,0.08)' : 'var(--bg2)'};border:1px solid ${isToday ? 'rgba(200,149,108,0.3)' : 'var(--border)'};border-radius:12px;padding:10px 12px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <span style="font-weight:700;font-size:0.9rem;color:${isWeekend ? 'var(--orange)' : isToday ? 'var(--accent)' : 'var(--text)'}">${monthFmt.format(d)}</span>
+            <span style="font-size:0.75rem;color:var(--hint)">${dayFmt.format(d)}</span>
+            ${isToday ? '<span style="font-size:0.65rem;color:var(--accent);margin-left:auto">сьогодні</span>' : ''}
+          </div>
+          <div style="display:flex;gap:8px">
+            ${shiftBlock(s1, 1)}
+            ${shiftBlock(s2, 2)}
+          </div>
+        </div>`;
+      });
+
+      document.getElementById('shiftsContainer').innerHTML = html;
+    };
+
+    function batchPlannerRange() {
+      const start = document.getElementById('batchStartDate')?.value;
+      const end = document.getElementById('batchEndDate')?.value;
+      if (!start || !end || start > end) return [];
+      const dates = [];
+      for (let d = new Date(start + 'T00:00:00'); formatLocalDate(d) <= end; d.setDate(d.getDate() + 1)) {
+        dates.push(formatLocalDate(d));
+      }
+      return dates;
+    }
+
+    function renderBatchPlannerDays() {
+      const container = document.getElementById('batchDaysList');
+      if (!container) return;
+      const dates = batchPlannerRange();
+      if (!dates.length) {
+        container.innerHTML = '<div class="empty-msg">Оберіть коректний діапазон дат</div>';
+        return;
+      }
+      const weekdayFmt = new Intl.DateTimeFormat('uk-UA', { weekday: 'short' });
+      const monthFmt = new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short' });
+      container.innerHTML = dates.map(date => {
+        const d = new Date(date + 'T00:00:00');
+        return `
+          <div data-batch-date="${date}" data-shift-num="" style="padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.03);margin-bottom:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:0.9rem;font-weight:600;color:var(--text)">${monthFmt.format(d)}</div>
+                <div style="font-size:0.75rem;color:var(--hint)">${weekdayFmt.format(d)}</div>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" class="mode-btn active" data-batch-choice="0" onclick="setBatchPlannerShift('${date}', 0)">Без зміни</button>
+                <button type="button" class="mode-btn" data-batch-choice="1" onclick="setBatchPlannerShift('${date}', 1)">1 зміна</button>
+                <button type="button" class="mode-btn" data-batch-choice="2" onclick="setBatchPlannerShift('${date}', 2)">2 зміна</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1">
+                <div class="card-label" style="margin-bottom:4px">Початок</div>
+                <input type="time" data-batch-start value="" disabled style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none;opacity:0.55">
+              </div>
+              <div style="flex:1">
+                <div class="card-label" style="margin-bottom:4px">Кінець</div>
+                <input type="time" data-batch-end value="" disabled style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none;opacity:0.55">
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function setBatchPlannerShift(date, shiftNum) {
+      const row = document.querySelector(`[data-batch-date="${date}"]`);
+      if (!row) return;
+      row.dataset.shiftNum = shiftNum ? String(shiftNum) : '';
+      row.querySelectorAll('[data-batch-choice]').forEach(btn => {
+        btn.classList.toggle('active', Number(btn.dataset.batchChoice) === shiftNum);
+      });
+      const startInput = row.querySelector('[data-batch-start]');
+      const endInput = row.querySelector('[data-batch-end]');
+      if (!startInput || !endInput) return;
+      if (!shiftNum) {
+        startInput.value = '';
+        endInput.value = '';
+        startInput.disabled = true;
+        endInput.disabled = true;
+        startInput.style.opacity = '0.55';
+        endInput.style.opacity = '0.55';
+        return;
+      }
+      const defaults = SHIFT_DEFAULTS[shiftNum] || SHIFT_DEFAULTS[1];
+      startInput.disabled = false;
+      endInput.disabled = false;
+      startInput.style.opacity = '1';
+      endInput.style.opacity = '1';
+      if (!startInput.value) startInput.value = defaults.start;
+      if (!endInput.value) endInput.value = defaults.end;
+    }
+
+    openBatchShiftPlanner = function() {
+      const workers = shiftsData.workers || [];
+      const workerOpts = workers.map(w => `<option value="${w.id}">${w.display_name} (${w.role})</option>`).join('');
+      const range = shiftsDateRange();
+      showModal(`
+        <div class="modal-title">📅 Пакетне призначення змін</div>
+        <div style="margin-bottom:10px">
+          <div class="card-label" style="margin-bottom:4px">Працівник</div>
+          <select id="batchWorker" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+            <option value="">Оберіть...</option>${workerOpts}
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="flex:1">
+            <div class="card-label" style="margin-bottom:4px">Початок</div>
+            <input type="date" id="batchStartDate" value="${range.from}" onchange="renderBatchPlannerDays()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
+          </div>
+          <div style="flex:1">
+            <div class="card-label" style="margin-bottom:4px">Кінець</div>
+            <input type="date" id="batchEndDate" value="${range.to}" onchange="renderBatchPlannerDays()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
+          </div>
+        </div>
+        <div style="margin-bottom:10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--hint);font-size:0.8rem;line-height:1.4">
+          Виберіть для кожного дня окремо: без зміни, 1-шу або 2-гу зміну. Час можна відкоригувати по рядках перед збереженням.
+        </div>
+        <div style="margin-bottom:10px">
+          <div class="card-label" style="margin-bottom:6px">Дні в діапазоні</div>
+          <div id="batchDaysList" style="max-height:42vh;overflow:auto"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:8px">
+          <input type="checkbox" id="batchNotifyWorker" style="width:16px;height:16px;cursor:pointer">
+          <label for="batchNotifyWorker" style="font-size:0.82rem;color:var(--hint);cursor:pointer">Повідомити працівника</label>
+        </div>
+        <button onclick="saveBatchShifts()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">💾 Застосувати</button>
+        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">Скасувати</button>
+      `);
+      renderBatchPlannerDays();
+    };
+
+    collectBatchAssignments = function() {
+      return [...document.querySelectorAll('[data-batch-date]')].map(row => {
+        const shiftNum = Number(row.dataset.shiftNum || 0);
+        if (!shiftNum) return null;
+        return {
+          date: row.dataset.batchDate,
+          shift_num: shiftNum,
+          time_start: row.querySelector('[data-batch-start]')?.value || null,
+          time_end: row.querySelector('[data-batch-end]')?.value || null,
+        };
+      }).filter(Boolean);
+    };
+
+    saveBatchShifts = async function() {
+      const workerId = document.getElementById('batchWorker')?.value;
+      if (!workerId) { showToast('⚠️ Оберіть працівника'); return; }
+      const assignments = collectBatchAssignments();
+      if (!assignments.length) { showToast('⚠️ Немає вибраних змін'); return; }
+      try {
+        const res = await fetch(`${API}/api/shifts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: currentUser.id,
+            action: 'batch_set',
+            worker_id: Number(workerId),
+            notify_worker: document.getElementById('batchNotifyWorker')?.checked === true,
+            assignments,
+          })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          closeModal();
+          showToast(`✅ Додано ${data.count} змін`);
+          loadShifts();
+        } else {
+          showToast('❌ ' + (data.error || 'Помилка'));
+        }
+      } catch (e) {
+        showToast('❌ Помилка зʼєднання');
+      }
+    };
 
     async function saveShift() {
       const wid = document.getElementById('shiftWorker').value;

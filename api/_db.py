@@ -82,6 +82,7 @@ def ensure_tables(conn):
                 on_swap_request INTEGER DEFAULT 0,
                 remind_snapshot INTEGER DEFAULT 0,
                 notify_shift_assigned INTEGER DEFAULT 0,
+                on_shift_assigned INTEGER DEFAULT 0,
                 updated_at TEXT DEFAULT (NOW() AT TIME ZONE 'UTC')
             )
         """)
@@ -135,7 +136,7 @@ def ensure_tables(conn):
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {typ}")
             except Exception:
                 pass
-        for col in ['on_snapshot', 'on_close_day', 'on_swap_request', 'remind_snapshot', 'notify_shift_assigned']:
+        for col in ['on_snapshot', 'on_close_day', 'on_swap_request', 'remind_snapshot', 'notify_shift_assigned', 'on_shift_assigned']:
             try:
                 cur.execute(f"ALTER TABLE notification_settings ALTER COLUMN {col} SET DEFAULT 0")
             except Exception:
@@ -1099,13 +1100,14 @@ def get_notification_settings(conn, user_id: int) -> dict:
             'on_snapshot': 0,
             'on_close_day': 0,
             'on_swap_request': 0,
+            'on_shift_assigned': 0,
             'remind_snapshot': 0,
             'notify_shift_assigned': 0,
         }
 
 
 def set_notification_settings(conn, user_id: int, **fields):
-    allowed = {'on_snapshot', 'on_close_day', 'on_swap_request', 'remind_snapshot', 'notify_shift_assigned'}
+    allowed = {'on_snapshot', 'on_close_day', 'on_swap_request', 'on_shift_assigned', 'remind_snapshot', 'notify_shift_assigned'}
     clean = {k: v for k, v in fields.items() if k in allowed}
     if not clean:
         return
