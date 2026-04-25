@@ -504,6 +504,17 @@ document.addEventListener('touchend', function(e) {
             💾 Зберегти виплату
           </button>
         </div>
+        <div class="card" id="expenseCard" style="margin-bottom:14px;display:none">
+          <div style="font-weight:600; margin-bottom:12px; font-size:0.95rem">🧾 Витрати</div>
+          <input type="number" id="expenseAmount" inputmode="decimal" placeholder="Сума (zł)"
+            style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.95rem;outline:none;margin-bottom:8px">
+          <input type="text" id="expenseNote" placeholder="Примітка"
+            style="width:100%;background:var(--bg);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none;margin-bottom:10px">
+          <button id="btnExpense" onclick="saveOperation('expense')"
+            style="width:100%;background:rgba(255,170,0,0.12);border:1px solid var(--orange);color:var(--orange);border-radius:10px;padding:11px;font-size:0.9rem;font-weight:600;cursor:pointer">
+            💾 Зберегти витрату
+          </button>
+        </div>
       </div>
     </div>
 
@@ -810,6 +821,26 @@ function isWorkerOnly() {
   return currentUser && ['barista', 'young'].includes(currentUser.role);
 }
 
+function hasModuleAccess(moduleName) {
+  if (!currentUser) return false;
+  if (isAdminUser()) return true;
+  return !!currentUser.modules?.[moduleName];
+}
+
+function setupEnterOperationsUI() {
+  const opsSection = document.getElementById('adminOpsSection');
+  const depositCard = document.getElementById('btnDeposit')?.closest('.card');
+  const withdrawalCard = document.getElementById('btnWithdrawal')?.closest('.card');
+  const expenseCard = document.getElementById('btnExpense')?.closest('.card');
+  const canDeposit = hasModuleAccess('deposits');
+  const canWithdraw = hasModuleAccess('withdrawals');
+  const canExpense = hasModuleAccess('expenses');
+  if (depositCard) depositCard.style.display = canDeposit ? 'block' : 'none';
+  if (withdrawalCard) withdrawalCard.style.display = canWithdraw ? 'block' : 'none';
+  if (expenseCard) expenseCard.style.display = canExpense ? 'block' : 'none';
+  if (opsSection) opsSection.style.display = (canDeposit || canWithdraw || canExpense) ? 'block' : 'none';
+}
+
 function setupWorkerUI() {
   // Hide dashboard and export from drawer
   const dDash = document.getElementById('dItem-dash');
@@ -841,6 +872,7 @@ function setupWorkerUI() {
 
   // Load enter tab status
   loadEnterStatus();
+  setupEnterOperationsUI();
 }
 
 function setupAdminUI() {
@@ -860,8 +892,7 @@ function setupAdminUI() {
     const exportTabBtn = document.getElementById('exportTabBtn');
     if (exportTabBtn) exportTabBtn.style.display = 'flex';
   }
-  const opsSection = document.getElementById('adminOpsSection');
-  if (opsSection && !isWorkerOnly()) opsSection.style.display = 'block';
+  setupEnterOperationsUI();
   showTab('dash');
 }
 
@@ -1064,9 +1095,9 @@ function renderAvgPriceContext(ctx) {
 let _opInProgress = false;
 async function saveOperation(type) {
   if (!currentUser || _opInProgress) return;
-  const amountId = type === 'deposit' ? 'depositAmount' : 'withdrawalAmount';
-  const noteId = type === 'deposit' ? 'depositNote' : 'withdrawalNote';
-  const btnId = type === 'deposit' ? 'btnDeposit' : 'btnWithdrawal';
+  const amountId = type === 'deposit' ? 'depositAmount' : type === 'withdrawal' ? 'withdrawalAmount' : 'expenseAmount';
+  const noteId = type === 'deposit' ? 'depositNote' : type === 'withdrawal' ? 'withdrawalNote' : 'expenseNote';
+  const btnId = type === 'deposit' ? 'btnDeposit' : type === 'withdrawal' ? 'btnWithdrawal' : 'btnExpense';
   const amountEl = document.getElementById(amountId);
   const noteEl = document.getElementById(noteId);
   const btnEl = document.getElementById(btnId);
@@ -1076,7 +1107,7 @@ async function saveOperation(type) {
     return;
   }
   const label = type === 'deposit' ? 'Вплату' : 'Виплату';
-  const fieldMap = { deposit: 'deposits', withdrawal: 'withdrawals' };
+  const fieldMap = { deposit: 'deposits', withdrawal: 'withdrawals', expense: 'expenses' };
   const now = new Date();
 
   // Block double submission
@@ -1116,6 +1147,62 @@ async function saveOperation(type) {
     if (btnEl) { btnEl.disabled = false; btnEl.textContent = lbl; }
   }
 }
+
+saveOperation = async function(type) {
+  if (!currentUser || _opInProgress) return;
+  const amountId = type === 'deposit' ? 'depositAmount' : type === 'withdrawal' ? 'withdrawalAmount' : 'expenseAmount';
+  const noteId = type === 'deposit' ? 'depositNote' : type === 'withdrawal' ? 'withdrawalNote' : 'expenseNote';
+  const btnId = type === 'deposit' ? 'btnDeposit' : type === 'withdrawal' ? 'btnWithdrawal' : 'btnExpense';
+  const amountEl = document.getElementById(amountId);
+  const noteEl = document.getElementById(noteId);
+  const btnEl = document.getElementById(btnId);
+  const fieldMap = { deposit: 'deposits', withdrawal: 'withdrawals', expense: 'expenses' };
+  const labelMap = { deposit: 'Вплату', withdrawal: 'Виплату', expense: 'Витрату' };
+  const btnLabelMap = {
+    deposit: '💾 Зберегти вплату',
+    withdrawal: '💾 Зберегти виплату',
+    expense: '💾 Зберегти витрату',
+  };
+  const val = parseFloat(amountEl?.value);
+  if (!val || val <= 0) {
+    showToast('⚠️ Введіть суму');
+    return;
+  }
+  _opInProgress = true;
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳...'; }
+  try {
+    const now = new Date();
+    const res = await fetch(`${API}/api/record`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        init_data: tg?.initData || '',
+        date: today(),
+        time: now.toTimeString().slice(0, 5),
+        field: fieldMap[type],
+        value: val,
+        notes: noteEl?.value?.trim() || null,
+      })
+    });
+    const data = await res.json();
+    if (data.status === 'ok' || data.ok || data.id) {
+      if (amountEl) amountEl.value = '';
+      if (noteEl) noteEl.value = '';
+      showToast(`✅ ${labelMap[type]} ${val.toFixed(2)} zł збережено`);
+      cachedSummary = null;
+      lastFetchTime = 0;
+      loadDashboard('day');
+    } else {
+      showToast('❌ ' + (data.error || 'Помилка'));
+    }
+  } catch (e) {
+    showToast("❌ Помилка з'єднання");
+  } finally {
+    _opInProgress = false;
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = btnLabelMap[type]; }
+  }
+};
 
 function renderDayDashboard(s, container) {
   updateDayStatus(s.is_finalized, s.closed_at, s.closed_time);

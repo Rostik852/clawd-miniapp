@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 
 from _cors import add_cors, handle_options
-from _db import get_conn, ensure_tables, get_user, today_str, ADMIN_ID, verify_tg_signature
+from _db import get_conn, ensure_tables, get_user, get_user_modules, today_str, ADMIN_ID, verify_tg_signature
 
 
 def _json_response(handler_obj, status, data):
@@ -101,6 +101,12 @@ class handler(BaseHTTPRequestHandler):
                 if not user['is_approved']:
                     conn.close()
                     _json_response(self, 403, {"error": "User not approved"})
+                    return
+                modules = get_user_modules(conn, user_id)
+                required_module = field
+                if required_module in ('deposits', 'withdrawals', 'expenses') and not modules.get(required_module, False):
+                    conn.close()
+                    _json_response(self, 403, {"error": "Module access denied"})
                     return
 
             created_at = datetime.now(timezone.utc).isoformat()
