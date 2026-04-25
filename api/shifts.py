@@ -15,7 +15,9 @@ from _db import (
     get_conn, ensure_tables, get_user, ADMIN_ID,
     get_shifts_range, set_shift, delete_shift, clear_worker_shifts,
     get_workers, request_swap, respond_swap, get_pending_swaps, is_admin,
-    notify_admins, notify_user, get_notification_settings, set_notification_settings
+    notify_admins, notify_user, get_notification_settings, set_notification_settings,
+    get_user_modules, get_day_off_requests_range, upsert_day_off_request,
+    respond_day_off_request, delete_day_off_request
 )
 from _cors import add_cors, handle_options
 
@@ -54,6 +56,11 @@ class handler(BaseHTTPRequestHandler):
             if not user or not user.get('is_approved'):
                 _json(self, 403, {'error': 'forbidden'})
                 return
+            if uid != ADMIN_ID:
+                modules = get_user_modules(conn, uid)
+                if not modules.get('shifts', False):
+                    _json(self, 403, {'error': 'module access denied'})
+                    return
 
             date_from = params.get('from', [str(date_cls.today())])[0]
             date_to   = params.get('to',   [str(date_cls.today() + timedelta(days=13))])[0]
@@ -61,12 +68,20 @@ class handler(BaseHTTPRequestHandler):
             shifts  = get_shifts_range(conn, date_from, date_to)
             workers = get_workers(conn)
             swaps   = get_pending_swaps(conn, uid)
+            day_offs = get_day_off_requests_range(
+                conn,
+                date_from,
+                date_to,
+                user_id=None if is_admin(conn, uid) else uid,
+                statuses=['pending', 'approved']
+            )
 
             _json(self, 200, {
                 'shifts': shifts,
                 'workers': workers,
                 'pending_swaps': swaps,
                 'is_admin': is_admin(conn, uid),
+                'day_offs': day_offs,
             })
         except Exception as e:
             _json(self, 500, {'error': str(e)})
@@ -95,6 +110,11 @@ class handler(BaseHTTPRequestHandler):
             if not user or not user.get('is_approved'):
                 _json(self, 403, {'error': 'forbidden'})
                 return
+            if uid != ADMIN_ID:
+                modules = get_user_modules(conn, uid)
+                if not modules.get('shifts', False):
+                    _json(self, 403, {'error': 'module access denied'})
+                    return
 
             if action == 'set':
                 if not is_admin(conn, uid):
@@ -112,6 +132,7 @@ class handler(BaseHTTPRequestHandler):
                     notes=body.get('notes'),
                     created_by=uid,
                 )
+                delete_day_off_request(conn, worker_id, body['date'])
                 # Get worker name for notification
                 worker_user = get_user(conn, worker_id) if worker_id != ADMIN_ID else None
                 wname = 'Адмін'
@@ -164,10 +185,20 @@ class handler(BaseHTTPRequestHandler):
                         continue
                     if shift_num == -1:
                         clear_worker_shifts(conn, date_val, worker_id)
+                        upsert_day_off_request(
+                            conn,
+                            user_id=worker_id,
+                            date=date_val,
+                            notes=item.get('notes'),
+                            requested_by=uid,
+                            status='approved',
+                            source='admin',
+                        )
                         days_off += 1
                         continue
                     if shift_num not in (1, 2):
                         continue
+                    delete_day_off_request(conn, worker_id, date_val)
                     shift = set_shift(
                         conn,
                         date=date_val,
@@ -214,6 +245,77 @@ class handler(BaseHTTPRequestHandler):
                     return
                 delete_shift(conn, date=body['date'], shift_num=int(body.get('shift_num', 1)))
                 _json(self, 200, {'ok': True})
+
+            elif action == 'request_day_off':
+                existing = get_day_off_requests_range(
+                    conn, body['date'], body['date'], user_id=uid, statuses=['approved']
+                )
+                if existing:
+                    _json(self, 400, {'error': 'day off already approved for this date'})
+                    return
+                req = upsert_day_off_request(
+                    conn,
+                    user_id=uid,
+                    date=body['date'],
+                    notes=body.get('notes'),
+                    requested_by=uid,
+                    status='pending',
+                    source='request',
+                )
+                req_user = get_user(conn, uid)
+                req_name = 'Працівник'
+                if req_user:
+                    n = ((req_user.get('first_name') or '') + ' ' + (req_user.get('last_name') or '')).strip()
+                    req_name = n or req_user.get('username') or f'#{uid}'
+                note_txt = f"\n💬 {body['notes']}" if body.get('notes') else ''
+                notify_admins(
+                    conn,
+                    f'🗓 <b>Запит на вихідний</b>\n👤 {req_name}\n📅 {body["date"]}{note_txt}',
+                    setting_key='on_shift_assigned'
+                )
+                _json(self, 200, {'ok': True, 'day_off': req})
+
+            elif action == 'set_day_off':
+                if not is_admin(conn, uid):
+                    _json(self, 403, {'error': 'admin only'})
+                    return
+                worker_id = int(body['worker_id'])
+                clear_worker_shifts(conn, body['date'], worker_id)
+                req = upsert_day_off_request(
+                    conn,
+                    user_id=worker_id,
+                    date=body['date'],
+                    notes=body.get('notes'),
+                    requested_by=uid,
+                    status='approved',
+                    source='admin',
+                )
+                notify_user(
+                    conn,
+                    worker_id,
+                    f'🗓 <b>Вихідний підтверджено</b>\n📅 {body["date"]}',
+                    setting_key='notify_shift_assigned'
+                )
+                _json(self, 200, {'ok': True, 'day_off': req})
+
+            elif action == 'respond_day_off':
+                if not is_admin(conn, uid):
+                    _json(self, 403, {'error': 'admin only'})
+                    return
+                status = 'approved' if body.get('approve') else 'rejected'
+                req = respond_day_off_request(conn, int(body['request_id']), status, uid)
+                if not req:
+                    _json(self, 404, {'error': 'day off request not found'})
+                    return
+                if status == 'approved':
+                    clear_worker_shifts(conn, req['date'], req['user_id'])
+                notify_user(
+                    conn,
+                    req['user_id'],
+                    f'🗓 <b>Запит на вихідний { "підтверджено" if status == "approved" else "відхилено" }</b>\n📅 {req["date"]}',
+                    setting_key='notify_shift_assigned'
+                )
+                _json(self, 200, {'ok': True, 'day_off': req})
 
             elif action == 'swap_request':
                 target_id = int(body['target_id'])

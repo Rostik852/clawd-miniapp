@@ -3,7 +3,7 @@ import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta, timezone
 
-MODULES = ['cash_income', 'card_income', 'coffee_count', 'deposits', 'withdrawals', 'expenses', 'reports']
+MODULES = ['cash_income', 'card_income', 'coffee_count', 'deposits', 'withdrawals', 'expenses', 'reports', 'shifts']
 ADMIN_ID = 199897236
 
 
@@ -111,6 +111,21 @@ def ensure_tables(conn):
                 notes TEXT,
                 responded_at TEXT,
                 created_at TEXT DEFAULT (NOW() AT TIME ZONE 'UTC')
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS day_off_requests (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                date TEXT NOT NULL,
+                notes TEXT DEFAULT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                source TEXT NOT NULL DEFAULT 'request',
+                requested_by BIGINT DEFAULT NULL,
+                responded_by BIGINT DEFAULT NULL,
+                responded_at TEXT DEFAULT NULL,
+                created_at TEXT DEFAULT (NOW() AT TIME ZONE 'UTC'),
+                UNIQUE(user_id, date)
             )
         """)
         cur.execute("""
@@ -331,6 +346,7 @@ DEFAULT_MODULES = {
     'withdrawals':  True,
     'expenses':     True,
     'reports':      False,
+    'shifts':       False,
 }
 
 
@@ -1272,6 +1288,90 @@ def get_workers(conn) -> list:
             d['display_name'] = name or r['username'] or f"#{r['id']}"
             rows.append(d)
         return rows
+
+
+def get_day_off_requests_range(conn, date_from: str, date_to: str, user_id: int = None,
+                               statuses=None) -> list:
+    """Get day-off requests with worker info for a date range."""
+    statuses = statuses or ['pending', 'approved']
+    where = ["d.date >= %s", "d.date <= %s"]
+    params = [date_from, date_to]
+    if user_id is not None:
+        where.append("d.user_id = %s")
+        params.append(user_id)
+    if statuses:
+        where.append("d.status = ANY(%s)")
+        params.append(statuses)
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(f"""
+            SELECT
+                d.*,
+                u.first_name,
+                u.last_name,
+                u.username,
+                u.role
+            FROM day_off_requests d
+            LEFT JOIN users u ON d.user_id = u.id
+            WHERE {' AND '.join(where)}
+            ORDER BY d.date ASC, d.created_at ASC
+        """, params)
+        rows = []
+        for r in cur.fetchall():
+            row = dict(r)
+            name = ((row.get('first_name') or '') + ' ' + (row.get('last_name') or '')).strip()
+            row['worker_name'] = name or row.get('username') or f"#{row['user_id']}"
+            rows.append(row)
+        return rows
+
+
+def upsert_day_off_request(conn, user_id: int, date: str, notes: str = None,
+                           requested_by: int = None, status: str = 'pending',
+                           source: str = 'request'):
+    """Create or update a day-off request/approval record."""
+    now = datetime.now(timezone.utc).isoformat()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            INSERT INTO day_off_requests (user_id, date, notes, status, source, requested_by, responded_by, responded_at, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (user_id, date) DO UPDATE SET
+                notes = EXCLUDED.notes,
+                status = EXCLUDED.status,
+                source = EXCLUDED.source,
+                requested_by = EXCLUDED.requested_by,
+                responded_by = EXCLUDED.responded_by,
+                responded_at = EXCLUDED.responded_at
+            RETURNING *
+        """, (
+            user_id, date, notes, status, source, requested_by,
+            requested_by if status == 'approved' else None,
+            now if status == 'approved' else None,
+            now
+        ))
+        row = dict(cur.fetchone())
+    conn.commit()
+    return row
+
+
+def respond_day_off_request(conn, request_id: int, status: str, responder_id: int):
+    """Approve or reject a day-off request."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            UPDATE day_off_requests
+            SET status = %s, responded_by = %s, responded_at = %s
+            WHERE id = %s
+            RETURNING *
+        """, (status, responder_id, datetime.now(timezone.utc).isoformat(), request_id))
+        row = cur.fetchone()
+    conn.commit()
+    return dict(row) if row else None
+
+
+def delete_day_off_request(conn, user_id: int, date: str):
+    """Remove day-off record for a worker/date."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM day_off_requests WHERE user_id = %s AND date = %s", (user_id, date))
+    conn.commit()
 
 
 def request_swap(conn, requester_id: int, target_id: int, date: str, notes: str = None):

@@ -783,6 +783,10 @@ function syncNavState(tab) {
 }
 
 function showTab(tab) {
+  if (tab === 'shifts' && !hasModuleAccess('shifts')) {
+    showToast('Немає доступу до графіка змін');
+    tab = isWorkerOnly() ? 'enter' : 'dash';
+  }
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
   const pane = document.getElementById('tab-' + tab);
   if (pane) pane.classList.add('active');
@@ -827,6 +831,15 @@ function hasModuleAccess(moduleName) {
   return !!currentUser.modules?.[moduleName];
 }
 
+function setupShiftAccessUI() {
+  const canSeeShifts = hasModuleAccess('shifts');
+  const drawerShift = document.getElementById('dItem-shifts');
+  const fabShift = document.getElementById('fabItem-shifts');
+  if (drawerShift) drawerShift.style.display = canSeeShifts ? '' : 'none';
+  if (fabShift) fabShift.style.display = canSeeShifts ? 'flex' : 'none';
+  return canSeeShifts;
+}
+
 function setupEnterOperationsUI() {
   const opsSection = document.getElementById('adminOpsSection');
   const depositCard = document.getElementById('btnDeposit')?.closest('.card');
@@ -859,6 +872,7 @@ function setupEnterOperationsUI() {
   if (depositBtn) depositBtn.textContent = 'Зберегти вплату';
   if (withdrawalBtn) withdrawalBtn.textContent = 'Зберегти виплату';
   if (expenseBtn) expenseBtn.textContent = 'Зберегти витрату';
+  opsSection?.querySelectorAll('button[onclick*="openAdminDayOffModal"], button[onclick*="openDayOffRequestModal"]').forEach(el => el.remove());
   if (opsSection && expenseCard && depositCard) {
     opsSection.insertBefore(expenseCard, depositCard);
   }
@@ -884,6 +898,7 @@ function setupWorkerUI() {
   if (fabDash) fabDash.style.display = 'none';
   if (fabExport) fabExport.style.display = 'none';
   if (fabTerminal) fabTerminal.style.display = 'none';
+  setupShiftAccessUI();
 
   // Hide period selector (admin-only)
   const ps = document.getElementById('periodSelector');
@@ -920,6 +935,7 @@ function setupAdminUI() {
     if (exportTabBtn) exportTabBtn.style.display = 'flex';
   }
   setupEnterOperationsUI();
+  setupShiftAccessUI();
   showTab('dash');
 }
 
@@ -1247,6 +1263,7 @@ saveOperation = async function(type) {
     if (btnEl) { btnEl.disabled = false; btnEl.textContent = btnLabelMap[type]; }
   }
 };
+MODULES_META.shifts = { icon:'📅', label:'Графік змін' };
 
 saveOperation = async function(type) {
   if (!currentUser || _opInProgress) return;
@@ -2429,7 +2446,7 @@ init();
       }
     };
 
-    let shiftsData = { shifts: [], workers: [], pending_swaps: [], is_admin: false };
+    let shiftsData = { shifts: [], workers: [], pending_swaps: [], is_admin: false, day_offs: [] };
     let shiftsWeekOffset = 0;
     let shiftsViewMode = 'biweek';
 
@@ -2466,6 +2483,7 @@ init();
       try {
         const r = await fetch(`${API}/api/shifts?user_id=${currentUser.id}&from=${from}&to=${to}`);
         shiftsData = await r.json();
+        if (!r.ok) throw new Error(shiftsData.error || 'Помилка завантаження');
         renderShifts();
       } catch(e) {
         document.getElementById('shiftsContainer').innerHTML = '<div class="empty-msg">❌ Помилка завантаження</div>';
@@ -2492,6 +2510,124 @@ init();
       if (mins < 0) mins += 24 * 60;
       if (mins <= 0 || mins > 16 * 60) return 0;
       return mins;
+    }
+
+    function groupDayOffsByDate(dayOffs) {
+      const grouped = {};
+      (dayOffs || []).forEach(item => {
+        if (!grouped[item.date]) grouped[item.date] = { approved: [], pending: [] };
+        if (item.status === 'approved') grouped[item.date].approved.push(item);
+        if (item.status === 'pending') grouped[item.date].pending.push(item);
+      });
+      return grouped;
+    }
+
+    function openDayOffRequestModal() {
+      const todayVal = today();
+      showModal(`
+        <div class="modal-title">🗓 Запит на вихідний</div>
+        <div style="margin-bottom:12px">
+          <div class="card-label" style="margin-bottom:4px">Дата</div>
+          <input type="date" id="dayOffDate" min="${todayVal}" value="${todayVal}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+        </div>
+        <div style="margin-bottom:12px">
+          <div class="card-label" style="margin-bottom:4px">Коментар</div>
+          <input type="text" id="dayOffNote" placeholder="Необов'язково" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+        </div>
+        <button onclick="submitDayOffRequest()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">Надіслати запит</button>
+        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">Скасувати</button>
+      `);
+    }
+
+    async function submitDayOffRequest() {
+      const dateVal = document.getElementById('dayOffDate')?.value;
+      const notes = document.getElementById('dayOffNote')?.value?.trim() || null;
+      if (!dateVal) { showToast('Оберіть дату'); return; }
+      try {
+        const res = await fetch(`${API}/api/shifts`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ user_id: currentUser.id, action: 'request_day_off', date: dateVal, notes })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          closeModal();
+          showToast('✅ Запит на вихідний надіслано');
+          loadShifts();
+        } else {
+          showToast(data.error || 'Помилка');
+        }
+      } catch (e) {
+        showToast("Помилка з'єднання");
+      }
+    }
+
+    function openAdminDayOffModal() {
+      const workers = shiftsData.workers || [];
+      const workerOpts = workers.map(w => `<option value="${w.id}">${w.display_name} (${w.role})</option>`).join('');
+      const todayVal = today();
+      showModal(`
+        <div class="modal-title">🗓 Встановити вихідний</div>
+        <div style="margin-bottom:12px">
+          <div class="card-label" style="margin-bottom:4px">Працівник</div>
+          <select id="adminDayOffWorker" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+            <option value="">Оберіть...</option>${workerOpts}
+          </select>
+        </div>
+        <div style="margin-bottom:12px">
+          <div class="card-label" style="margin-bottom:4px">Дата</div>
+          <input type="date" id="adminDayOffDate" min="${todayVal}" value="${todayVal}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+        </div>
+        <div style="margin-bottom:12px">
+          <div class="card-label" style="margin-bottom:4px">Коментар</div>
+          <input type="text" id="adminDayOffNote" placeholder="Необов'язково" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+        </div>
+        <button onclick="submitAdminDayOff()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">Зберегти вихідний</button>
+        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">Скасувати</button>
+      `);
+    }
+
+    async function submitAdminDayOff() {
+      const workerId = Number(document.getElementById('adminDayOffWorker')?.value || 0);
+      const dateVal = document.getElementById('adminDayOffDate')?.value;
+      const notes = document.getElementById('adminDayOffNote')?.value?.trim() || null;
+      if (!workerId || !dateVal) { showToast('Заповніть працівника і дату'); return; }
+      try {
+        const res = await fetch(`${API}/api/shifts`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ user_id: currentUser.id, action: 'set_day_off', worker_id: workerId, date: dateVal, notes })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          closeModal();
+          showToast('✅ Вихідний збережено');
+          loadShifts();
+        } else {
+          showToast(data.error || 'Помилка');
+        }
+      } catch (e) {
+        showToast("Помилка з'єднання");
+      }
+    }
+
+    async function respondDayOff(requestId, approve) {
+      try {
+        const res = await fetch(`${API}/api/shifts`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ user_id: currentUser.id, action: 'respond_day_off', request_id: requestId, approve })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast(approve ? '✅ Вихідний підтверджено' : '❌ Запит відхилено');
+          loadShifts();
+        } else {
+          showToast(data.error || 'Помилка');
+        }
+      } catch (e) {
+        showToast("Помилка з'єднання");
+      }
     }
 
     function renderShifts() {
@@ -2683,7 +2819,7 @@ init();
         <div class="modal-title">📅 Пакетне призначення змін</div>
         <div style="margin-bottom:10px">
           <div class="card-label" style="margin-bottom:4px">Працівник</div>
-          <select id="batchWorker" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+          <select id="batchWorker" onchange="renderBatchPlannerDays()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
             <option value="">Оберіть...</option>${workerOpts}
           </select>
         </div>
@@ -2803,6 +2939,7 @@ init();
 
       const swaps = shiftsData.pending_swaps || [];
       const isAdm = shiftsData.is_admin;
+      const dayOffMap = groupDayOffsByDate(shiftsData.day_offs || []);
       const dayFmt = new Intl.DateTimeFormat('uk-UA', { weekday: 'short' });
       const monthFmt = new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short' });
 
@@ -2818,6 +2955,10 @@ init();
           ${isAdm ? `<button class="mode-btn" onclick="openBatchShiftPlanner()">Пакетно</button>` : ''}
         </div>
       `;
+
+      html += `<div style="display:flex;gap:8px;margin:-4px 0 14px;flex-wrap:wrap">
+        <button class="mode-btn" onclick="${isAdm ? 'openAdminDayOffModal()' : 'openDayOffRequestModal()'}">Вихідний</button>
+      </div>`;
 
       if (swaps.length) {
         html += `<div class="section-title">🔄 Запити на обмін (${swaps.length})</div>`;
@@ -2842,6 +2983,34 @@ init();
             </div>
           </div>`;
         });
+      }
+
+      const dayOffs = shiftsData.day_offs || [];
+      const pendingDayOffs = dayOffs.filter(item => item.status === 'pending');
+      const approvedDayOffs = dayOffs.filter(item => item.status === 'approved');
+      if (pendingDayOffs.length || approvedDayOffs.length) {
+        html += `<div class="section-title">🗓 Вихідні</div>`;
+        if (pendingDayOffs.length) {
+          pendingDayOffs.forEach(item => {
+            html += `<div class="breakdown" style="margin-bottom:8px">
+              <div class="brow" style="flex-direction:column;align-items:flex-start;gap:6px">
+                <div style="font-size:0.82rem;color:var(--text)"><strong>${item.worker_name}</strong> · ${item.date} · очікує підтвердження</div>
+                ${item.notes ? `<div style="font-size:0.72rem;color:var(--hint)">${item.notes}</div>` : ''}
+                ${isAdm ? `<div style="display:flex;gap:6px">
+                  <button onclick="respondDayOff(${item.id},true)" style="background:rgba(76,175,125,0.2);border:1px solid var(--green);color:var(--green);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Підтвердити</button>
+                  <button onclick="respondDayOff(${item.id},false)" style="background:rgba(224,85,85,0.1);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Відхилити</button>
+                </div>` : ''}
+              </div>
+            </div>`;
+          });
+        }
+        if (approvedDayOffs.length) {
+          html += `<div class="breakdown" style="margin-bottom:14px">`;
+          approvedDayOffs.forEach(item => {
+            html += `<div class="brow"><span class="brow-label">🌴 ${item.worker_name} · ${item.date}</span><span class="brow-val">вихідний</span></div>`;
+          });
+          html += `</div>`;
+        }
       }
 
       const hoursMap = {};
@@ -2876,6 +3045,7 @@ init();
         const d = new Date(date + 'T00:00:00');
         const isToday = date === today();
         const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+        const dayOffInfo = dayOffMap[date] || { approved: [], pending: [] };
         const s1 = shiftMap[date]?.[1];
         const s2 = shiftMap[date]?.[2];
 
@@ -2903,6 +3073,8 @@ init();
             <span style="font-size:0.75rem;color:var(--hint)">${dayFmt.format(d)}</span>
             ${isToday ? '<span style="font-size:0.65rem;color:var(--accent);margin-left:auto">сьогодні</span>' : ''}
           </div>
+          ${dayOffInfo.approved.length ? `<div style="font-size:0.74rem;color:var(--orange);margin-bottom:8px">🌴 Вихідний: ${dayOffInfo.approved.map(item => item.worker_name).join(', ')}</div>` : ''}
+          ${isAdm && dayOffInfo.pending.length ? `<div style="font-size:0.74rem;color:var(--blue);margin-bottom:8px">📝 Запит: ${dayOffInfo.pending.map(item => item.worker_name).join(', ')}</div>` : ''}
           <div style="display:flex;gap:8px">
             ${shiftBlock(s1, 1)}
             ${shiftBlock(s2, 2)}
@@ -2927,6 +3099,7 @@ init();
     function renderBatchPlannerDays() {
       const container = document.getElementById('batchDaysList');
       if (!container) return;
+      const selectedWorkerId = Number(document.getElementById('batchWorker')?.value || 0);
       const dates = batchPlannerRange();
       if (!dates.length) {
         container.innerHTML = '<div class="empty-msg">Оберіть коректний діапазон дат</div>';
@@ -2936,6 +3109,9 @@ init();
       const monthFmt = new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short' });
       container.innerHTML = dates.map(date => {
         const d = new Date(date + 'T00:00:00');
+        const workerDayOff = (shiftsData.day_offs || []).find(item =>
+          Number(item.user_id) === selectedWorkerId && item.date === date && item.status !== 'rejected'
+        );
         return `
           <div data-batch-date="${date}" data-shift-num="" style="padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.03);margin-bottom:8px">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
@@ -2950,6 +3126,7 @@ init();
                 <button type="button" class="mode-btn" data-batch-choice="2" onclick="setBatchPlannerShift('${date}', 2)">2 зміна</button>
               </div>
             </div>
+            ${workerDayOff ? `<div style="font-size:0.74rem;color:${workerDayOff.status === 'approved' ? 'var(--orange)' : 'var(--blue)'};margin-bottom:8px">${workerDayOff.status === 'approved' ? '🌴 Вже позначено вихідний' : '📝 Є запит на вихідний'}${workerDayOff.notes ? ` · ${workerDayOff.notes}` : ''}</div>` : ''}
             <div style="display:flex;gap:8px">
               <div style="flex:1">
                 <div class="card-label" style="margin-bottom:4px">Початок</div>
@@ -3001,7 +3178,7 @@ init();
         <div class="modal-title">📅 Пакетне призначення змін</div>
         <div style="margin-bottom:10px">
           <div class="card-label" style="margin-bottom:4px">Працівник</div>
-          <select id="batchWorker" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
+          <select id="batchWorker" onchange="renderBatchPlannerDays()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
             <option value="">Оберіть...</option>${workerOpts}
           </select>
         </div>
