@@ -58,6 +58,11 @@ class handler(BaseHTTPRequestHandler):
         if value is None:
             _json_response(self, 400, {"error": "value required"})
             return
+        if field == 'expenses':
+            notes = (notes or '').strip()
+            if not notes:
+                _json_response(self, 400, {"error": "Expense note required"})
+                return
 
         try:
             user_id = int(user_id)

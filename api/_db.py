@@ -240,10 +240,15 @@ def add_record(conn, user_id, date_str, **fields):
     conn.commit()
 
 
-def get_summary_day(conn, date_str):
-    """Return aggregated totals from records table for a given date (admin ops)."""
+def get_summary_day(conn, date_str, cutoff_time=None, after_cutoff=False):
+    """Return aggregated totals from records table for a given date.
+
+    When cutoff_time is provided, records are split by local event_time:
+    - after_cutoff=False  -> records at or before cutoff_time
+    - after_cutoff=True   -> records after cutoff_time
+    """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("""
+        sql = """
             SELECT
                 COALESCE(SUM(cash_income), 0)      AS cash_income,
                 COALESCE(SUM(card_income), 0)      AS card_income,
@@ -253,8 +258,56 @@ def get_summary_day(conn, date_str):
                 COALESCE(SUM(expenses), 0)         AS expenses
             FROM records
             WHERE date = %s
-        """, (date_str,))
+        """
+        params = [date_str]
+        if cutoff_time:
+            comparator = '>' if after_cutoff else '<='
+            sql += f" AND COALESCE(event_time, '00:00') {comparator} %s"
+            params.append(cutoff_time)
+        cur.execute(sql, params)
         return dict(cur.fetchone())
+
+
+def get_carryover_cash(conn, date_str):
+    """Compute opening cash for date_str from the previous day's finalized closing.
+
+    Carryover = previous closing cash
+                - withdrawals to safe
+                + deposits from safe
+                - expenses
+    where post-close operations from the previous day are applied.
+    """
+    previous_day = (
+        datetime.strptime(date_str, '%Y-%m-%d') - timedelta(days=1)
+    ).strftime('%Y-%m-%d')
+    previous_session = get_session(conn, previous_day)
+    if not previous_session:
+        return 0.0
+    if previous_session.get('closing_cash') is None:
+        return 0.0
+
+    carryover = float(previous_session.get('closing_cash') or 0)
+    closed_time = previous_session.get('closed_time')
+    if closed_time:
+        post_close_ops = get_summary_day(conn, previous_day, cutoff_time=closed_time, after_cutoff=True)
+        carryover = round(
+            carryover
+            - float(post_close_ops.get('cash_withdrawal') or 0)
+            + float(post_close_ops.get('cash_deposit') or 0)
+            - float(post_close_ops.get('expenses') or 0),
+            2
+        )
+    return carryover
+
+
+def get_effective_summary_day(conn, date_str, session=None):
+    """Return totals that belong to the operational day only."""
+    if session is None:
+        session = get_session(conn, date_str)
+    cutoff_time = None
+    if session and session.get('is_finalized') and session.get('closed_time'):
+        cutoff_time = session.get('closed_time')
+    return get_summary_day(conn, date_str, cutoff_time=cutoff_time)
 
 
 DEFAULT_MODULES = {
@@ -327,23 +380,24 @@ def get_pending_users(conn):
 # ── Daily session functions ───────────────────────────────────────────────────
 
 def get_or_create_session(conn, date_str):
-    """Get today's session or create with opening_cash from yesterday's closing."""
+    """Get today's session or create with opening_cash from previous finalized carryover."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM daily_session WHERE date = %s", (date_str,))
         session = cur.fetchone()
         if session:
-            return dict(session)
+            session_dict = dict(session)
+            if not session_dict.get('is_finalized'):
+                opening_cash = get_carryover_cash(conn, date_str)
+                if float(session_dict.get('opening_cash') or 0) != float(opening_cash or 0):
+                    cur.execute(
+                        "UPDATE daily_session SET opening_cash = %s WHERE date = %s",
+                        (opening_cash, date_str)
+                    )
+                    conn.commit()
+                    session_dict['opening_cash'] = opening_cash
+            return session_dict
 
-        # Find yesterday's closing_cash
-        yesterday = (
-            datetime.strptime(date_str, '%Y-%m-%d') - timedelta(days=1)
-        ).strftime('%Y-%m-%d')
-        cur.execute(
-            "SELECT closing_cash FROM daily_session WHERE date = %s AND closing_cash IS NOT NULL",
-            (yesterday,)
-        )
-        yesterday_row = cur.fetchone()
-        opening_cash = yesterday_row['closing_cash'] if yesterday_row else 0
+        opening_cash = get_carryover_cash(conn, date_str)
 
         cur.execute("""
             INSERT INTO daily_session (date, opening_cash)
@@ -759,23 +813,13 @@ def get_daily_summary(conn, date_str):
             'notes': None,
         }
 
-    # Admin ops from records table
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("""
-            SELECT
-                COALESCE(SUM(cash_deposit), 0)     AS admin_deposits,
-                COALESCE(SUM(cash_withdrawal), 0)  AS admin_withdrawals,
-                COALESCE(SUM(expenses), 0)         AS expenses
-            FROM records
-            WHERE date = %s
-        """, (date_str,))
-        admin_row = dict(cur.fetchone())
+    admin_row = get_effective_summary_day(conn, date_str, session)
 
     opening = float(session.get('opening_cash') or 0)
     closing = session.get('closing_cash')
-    admin_deposits = float(admin_row['admin_deposits'])
-    admin_withdrawals = float(admin_row['admin_withdrawals'])
-    expenses = float(admin_row['expenses'])
+    admin_deposits = float(admin_row.get('cash_deposit') or 0)
+    admin_withdrawals = float(admin_row.get('cash_withdrawal') or 0)
+    expenses = float(admin_row.get('expenses') or 0)
 
     snaps = get_snapshots(conn, date_str)
 
@@ -865,12 +909,10 @@ def get_period_summary(conn, period: str, ref_date: str) -> dict:
         session = get_session(conn, ref_date)
         if not session:
             return {'period': 'day', 'date': ref_date, 'rows': [], 'totals': {}, 'activity_log': []}
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT COALESCE(SUM(cash_deposit),0), COALESCE(SUM(cash_withdrawal),0), COALESCE(SUM(expenses),0)
-                FROM records WHERE date = %s
-            """, (ref_date,))
-            dep, wit, exp = cur.fetchone()
+        summary_row = get_effective_summary_day(conn, ref_date, session)
+        dep = float(summary_row.get('cash_deposit') or 0)
+        wit = float(summary_row.get('cash_withdrawal') or 0)
+        exp = float(summary_row.get('expenses') or 0)
         _closing = session.get('closing_cash')
         _opening = session.get('opening_cash') or 0
         if _closing is not None:
@@ -917,7 +959,7 @@ def get_period_summary(conn, period: str, ref_date: str) -> dict:
 
 
 def _get_rows_for_dates(conn, dates, period, ref_date):
-    """Batch-fetch sessions and admin ops to avoid N+1 per-day queries."""
+    """Batch-fetch sessions and compute day-safe-aware summaries."""
     if not dates:
         return {'period': period, 'date': ref_date, 'rows': [], 'totals': _calc_totals([])}
 
@@ -926,23 +968,11 @@ def _get_rows_for_dates(conn, dates, period, ref_date):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
             SELECT date, opening_cash, closing_cash, coffee_portions, card_income,
-                   is_finalized, closed_at
+                   is_finalized, closed_at, closed_time
             FROM daily_session
             WHERE date >= %s AND date <= %s
         """, (start_date, end_date))
         sessions = {row['date']: dict(row) for row in cur.fetchall()}
-
-        # Batch admin ops for all dates at once
-        cur.execute("""
-            SELECT date,
-                   COALESCE(SUM(cash_deposit), 0)    AS admin_dep,
-                   COALESCE(SUM(cash_withdrawal), 0) AS admin_wit,
-                   COALESCE(SUM(expenses), 0)        AS expenses
-            FROM records
-            WHERE date >= %s AND date <= %s
-            GROUP BY date
-        """, (start_date, end_date))
-        admin_ops = {row['date']: dict(row) for row in cur.fetchall()}
 
     rows = []
     for d in dates:
@@ -956,9 +986,9 @@ def _get_rows_for_dates(conn, dates, period, ref_date):
                 'avg_price_cash': None, 'avg_price_total': None,
             })
             continue
-        ops = admin_ops.get(d, {})
-        admin_dep = float(ops.get('admin_dep') or 0)
-        admin_wit = float(ops.get('admin_wit') or 0)
+        ops = get_effective_summary_day(conn, d, session)
+        admin_dep = float(ops.get('cash_deposit') or 0)
+        admin_wit = float(ops.get('cash_withdrawal') or 0)
         exp = float(ops.get('expenses') or 0)
         _closing = session.get('closing_cash')
         _opening = float(session.get('opening_cash') or 0)
@@ -1021,10 +1051,7 @@ def verify_tg_signature(init_data: str, bot_token: str) -> bool:
 
 
 def get_weekly_data(conn):
-    """Returns last 7 days of daily_session data for chart.
-    Uses correct revenue formula: closing - opening - deposits + withdrawals + expenses.
-    Batch queries to avoid N+1 per day.
-    """
+    """Returns last 7 days of daily_session data for chart."""
     today = datetime.now(timezone.utc).date()
     dates = [(today - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
     start_date = dates[0]
@@ -1032,34 +1059,22 @@ def get_weekly_data(conn):
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
-            SELECT date, opening_cash, closing_cash, coffee_portions, card_income, is_finalized
+            SELECT date, opening_cash, closing_cash, coffee_portions, card_income, is_finalized, closed_time
             FROM daily_session
             WHERE date >= %s AND date <= %s
             ORDER BY date ASC
         """, (start_date, end_date))
         rows = {row['date']: dict(row) for row in cur.fetchall()}
 
-        # Batch admin ops (deposits / withdrawals / expenses) for all 7 days at once
-        cur.execute("""
-            SELECT date,
-                   COALESCE(SUM(cash_deposit), 0)    AS admin_deposits,
-                   COALESCE(SUM(cash_withdrawal), 0) AS admin_withdrawals,
-                   COALESCE(SUM(expenses), 0)        AS expenses
-            FROM records
-            WHERE date >= %s AND date <= %s
-            GROUP BY date
-        """, (start_date, end_date))
-        admin_ops = {row['date']: dict(row) for row in cur.fetchall()}
-
     result = []
     for d in dates:
         if d in rows:
             row = rows[d]
-            ops = admin_ops.get(d, {})
+            ops = get_effective_summary_day(conn, d, row)
             opening = float(row.get('opening_cash') or 0)
             closing = row.get('closing_cash')
-            admin_dep = float(ops.get('admin_deposits') or 0)
-            admin_wit = float(ops.get('admin_withdrawals') or 0)
+            admin_dep = float(ops.get('cash_deposit') or 0)
+            admin_wit = float(ops.get('cash_withdrawal') or 0)
             exp = float(ops.get('expenses') or 0)
             # Correct formula: виручка = closing - opening - вплати + виплати + витрати
             if closing is not None:

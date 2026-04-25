@@ -832,9 +832,36 @@ function setupEnterOperationsUI() {
   const depositCard = document.getElementById('btnDeposit')?.closest('.card');
   const withdrawalCard = document.getElementById('btnWithdrawal')?.closest('.card');
   const expenseCard = document.getElementById('btnExpense')?.closest('.card');
+  const depositTitle = depositCard?.querySelector('div[style*="font-weight:600"]');
+  const withdrawalTitle = withdrawalCard?.querySelector('div[style*="font-weight:600"]');
+  const expenseTitle = expenseCard?.querySelector('div[style*="font-weight:600"]');
+  const depositNote = document.getElementById('depositNote');
+  const withdrawalNote = document.getElementById('withdrawalNote');
+  const expenseNote = document.getElementById('expenseNote');
+  const depositAmount = document.getElementById('depositAmount');
+  const withdrawalAmount = document.getElementById('withdrawalAmount');
+  const expenseAmount = document.getElementById('expenseAmount');
+  const depositBtn = document.getElementById('btnDeposit');
+  const withdrawalBtn = document.getElementById('btnWithdrawal');
+  const expenseBtn = document.getElementById('btnExpense');
   const canDeposit = hasModuleAccess('deposits');
   const canWithdraw = hasModuleAccess('withdrawals');
   const canExpense = hasModuleAccess('expenses');
+  if (depositTitle) depositTitle.textContent = 'Вплата з сейфу';
+  if (withdrawalTitle) withdrawalTitle.textContent = 'Виплата в сейф';
+  if (expenseTitle) expenseTitle.textContent = 'Витрати';
+  if (depositAmount) depositAmount.placeholder = 'Сума (zł)';
+  if (withdrawalAmount) withdrawalAmount.placeholder = 'Сума (zł)';
+  if (expenseAmount) expenseAmount.placeholder = 'Сума (zł)';
+  if (depositNote) depositNote.placeholder = "Коментар (необов'язково)";
+  if (withdrawalNote) withdrawalNote.placeholder = "Коментар (необов'язково)";
+  if (expenseNote) expenseNote.placeholder = "Коментар (обов'язково)";
+  if (depositBtn) depositBtn.textContent = 'Зберегти вплату';
+  if (withdrawalBtn) withdrawalBtn.textContent = 'Зберегти виплату';
+  if (expenseBtn) expenseBtn.textContent = 'Зберегти витрату';
+  if (opsSection && expenseCard && depositCard) {
+    opsSection.insertBefore(expenseCard, depositCard);
+  }
   if (depositCard) depositCard.style.display = canDeposit ? 'block' : 'none';
   if (withdrawalCard) withdrawalCard.style.display = canWithdraw ? 'block' : 'none';
   if (expenseCard) expenseCard.style.display = canExpense ? 'block' : 'none';
@@ -1198,6 +1225,69 @@ saveOperation = async function(type) {
     }
   } catch (e) {
     showToast("❌ Помилка з'єднання");
+  } finally {
+    _opInProgress = false;
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = btnLabelMap[type]; }
+  }
+};
+
+saveOperation = async function(type) {
+  if (!currentUser || _opInProgress) return;
+  const amountId = type === 'deposit' ? 'depositAmount' : type === 'withdrawal' ? 'withdrawalAmount' : 'expenseAmount';
+  const noteId = type === 'deposit' ? 'depositNote' : type === 'withdrawal' ? 'withdrawalNote' : 'expenseNote';
+  const btnId = type === 'deposit' ? 'btnDeposit' : type === 'withdrawal' ? 'btnWithdrawal' : 'btnExpense';
+  const amountEl = document.getElementById(amountId);
+  const noteEl = document.getElementById(noteId);
+  const btnEl = document.getElementById(btnId);
+  const fieldMap = { deposit: 'deposits', withdrawal: 'withdrawals', expense: 'expenses' };
+  const labelMap = { deposit: 'Вплату з сейфу', withdrawal: 'Виплату в сейф', expense: 'Витрату' };
+  const btnLabelMap = {
+    deposit: 'Зберегти вплату',
+    withdrawal: 'Зберегти виплату',
+    expense: 'Зберегти витрату',
+  };
+  const val = parseFloat(amountEl?.value);
+  const notes = noteEl?.value?.trim() || '';
+
+  if (!val || val <= 0) {
+    showToast('Введіть суму');
+    return;
+  }
+  if (type === 'expense' && !notes) {
+    showToast("Для витрати потрібен коментар");
+    return;
+  }
+
+  _opInProgress = true;
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '...'; }
+  try {
+    const now = new Date();
+    const res = await fetch(`${API}/api/record`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        init_data: tg?.initData || '',
+        date: today(),
+        time: now.toTimeString().slice(0, 5),
+        field: fieldMap[type],
+        value: val,
+        notes: notes || null,
+      })
+    });
+    const data = await res.json();
+    if (data.status === 'ok' || data.ok || data.id) {
+      if (amountEl) amountEl.value = '';
+      if (noteEl) noteEl.value = '';
+      showToast(`${labelMap[type]} ${val.toFixed(2)} zł збережено`);
+      cachedSummary = null;
+      lastFetchTime = 0;
+      loadDashboard('day');
+    } else {
+      showToast(data.error || 'Помилка');
+    }
+  } catch (e) {
+    showToast("Помилка з'єднання");
   } finally {
     _opInProgress = false;
     if (btnEl) { btnEl.disabled = false; btnEl.textContent = btnLabelMap[type]; }
