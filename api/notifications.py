@@ -1,9 +1,10 @@
 """
 Notifications API
-GET  /api/notifications?user_id=...         — get settings
-POST /api/notifications   {action: update_settings | remind_check}
+GET  /api/notifications?user_id=...         -> get settings
+GET  /api/notifications?cron=remind         -> cron snapshot reminders
+POST /api/notifications
   update_settings: {user_id, on_snapshot?, on_close_day?, on_swap_request?, on_shift_assigned?, remind_snapshot?, notify_shift_assigned?}
-  remind_check: called by cron — checks shifts ending in 10 min and sends reminders
+  remind_check: called by cron -> checks shifts ending in 10 min and sends reminders
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -11,14 +12,18 @@ sys.path.insert(0, os.path.dirname(__file__))
 import json
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from _db import (
-    get_conn, ensure_tables, get_user, ADMIN_ID, is_admin,
+    get_conn, ensure_tables, is_admin,
     get_notification_settings, set_notification_settings,
-    get_shifts_range, notify_user
+    get_shifts_range, notify_user, get_bot_state, set_bot_state
 )
 from _cors import add_cors, handle_options
+
+
+LOCAL_TZ = ZoneInfo('Europe/Warsaw')
 
 
 def _json(h, status, data):
@@ -30,6 +35,47 @@ def _json(h, status, data):
     h.wfile.write(body)
 
 
+def _local_now():
+    return datetime.now(timezone.utc).astimezone(LOCAL_TZ)
+
+
+def _remind_snapshot_check(conn):
+    local_now = _local_now()
+    today_str = local_now.strftime('%Y-%m-%d')
+    now_mins = local_now.hour * 60 + local_now.minute
+    shifts = get_shifts_range(conn, today_str, today_str)
+    sent = 0
+
+    for shift in shifts:
+        if not shift.get('time_end'):
+            continue
+        try:
+            h_e, m_e = shift['time_end'].split(':')
+            shift_end_mins = int(h_e) * 60 + int(m_e)
+        except Exception:
+            continue
+
+        # Exact 10 minutes before end of this worker's shift.
+        if shift_end_mins - now_mins != 10:
+            continue
+
+        reminder_key = f'remind_snapshot:{today_str}:{shift["time_end"]}'
+        state = get_bot_state(conn, shift['user_id']) or {}
+        if state.get('state') == reminder_key:
+            continue
+
+        notify_user(
+            conn,
+            shift['user_id'],
+            f'⏰ <b>Нагадування</b>\nЗміна закінчується о {shift["time_end"]}.\nНе забудь зробити 📸 Snapshot!',
+            setting_key='remind_snapshot'
+        )
+        set_bot_state(conn, shift['user_id'], reminder_key, today_str)
+        sent += 1
+
+    return sent
+
+
 class handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
@@ -39,33 +85,11 @@ class handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
 
-        # Cron endpoint: /api/notifications?cron=remind
         if params.get('cron', [None])[0] == 'remind':
             conn = get_conn()
             try:
                 ensure_tables(conn)
-                now_utc = datetime.now(timezone.utc)
-                local_now = now_utc + timedelta(hours=2)
-                today_str = local_now.strftime('%Y-%m-%d')
-                shifts = get_shifts_range(conn, today_str, today_str)
-                sent = 0
-                for s in shifts:
-                    if not s.get('time_end'):
-                        continue
-                    h_e, m_e = s['time_end'].split(':')
-                    shift_end_mins = int(h_e) * 60 + int(m_e)
-                    h_n, m_n = local_now.strftime('%H:%M').split(':')
-                    now_mins = int(h_n) * 60 + int(m_n)
-                    diff = shift_end_mins - now_mins
-                    if 8 <= diff <= 14:
-                        notify_user(
-                            conn, s['user_id'],
-                            f'⏰ <b>Нагадування</b>\nЗміна закінчується о {s["time_end"]}.\n'
-                            f'Не забудь зробити 📸 Snapshot!',
-                            setting_key='remind_snapshot'
-                        )
-                        sent += 1
-                _json(self, 200, {'ok': True, 'reminders_sent': sent})
+                _json(self, 200, {'ok': True, 'reminders_sent': _remind_snapshot_check(conn)})
             except Exception as e:
                 _json(self, 500, {'error': str(e)})
             finally:
@@ -76,11 +100,11 @@ class handler(BaseHTTPRequestHandler):
         if not uid_str:
             _json(self, 400, {'error': 'user_id required'})
             return
-        uid = int(uid_str)
+
         conn = get_conn()
         try:
             ensure_tables(conn)
-            settings = get_notification_settings(conn, uid)
+            settings = get_notification_settings(conn, int(uid_str))
             _json(self, 200, settings)
         except Exception as e:
             _json(self, 500, {'error': str(e)})
@@ -102,11 +126,11 @@ class handler(BaseHTTPRequestHandler):
 
             if action == 'update_settings':
                 uid = int(body['user_id'])
-                # Admin can update anyone's settings; user can update own
                 requesting_uid = int(body.get('requesting_user_id', uid))
                 if requesting_uid != uid and not is_admin(conn, requesting_uid):
                     _json(self, 403, {'error': 'forbidden'})
                     return
+
                 allowed_keys = {
                     'on_snapshot', 'on_close_day', 'on_swap_request', 'on_shift_assigned',
                     'remind_snapshot', 'notify_shift_assigned'
@@ -116,34 +140,7 @@ class handler(BaseHTTPRequestHandler):
                 _json(self, 200, {'ok': True, 'settings': get_notification_settings(conn, uid)})
 
             elif action == 'remind_check':
-                # Called by cron — find shifts ending in next 10-15 min, send reminders
-                now_utc = datetime.now(timezone.utc)
-                # Convert to local time (Europe/Warsaw UTC+2 approximate)
-                local_now = now_utc + timedelta(hours=2)
-                target_end = (local_now + timedelta(minutes=10)).strftime('%H:%M')
-                today_str = local_now.strftime('%Y-%m-%d')
-
-                shifts = get_shifts_range(conn, today_str, today_str)
-                sent = 0
-                for s in shifts:
-                    if not s.get('time_end'):
-                        continue
-                    # Check if shift ends in ~10 minutes (within ±2 min window)
-                    [h_e, m_e] = s['time_end'].split(':')
-                    shift_end_mins = int(h_e) * 60 + int(m_e)
-                    [h_n, m_n] = local_now.strftime('%H:%M').split(':')
-                    now_mins = int(h_n) * 60 + int(m_n)
-                    diff = shift_end_mins - now_mins
-                    if 8 <= diff <= 14:
-                        notify_user(
-                            conn,
-                            s['user_id'],
-                            f'⏰ <b>Нагадування</b>\nЗміна закінчується о {s["time_end"]}.\n'
-                            f'Не забудь зробити 📸 Snapshot!',
-                            setting_key='remind_snapshot'
-                        )
-                        sent += 1
-                _json(self, 200, {'ok': True, 'reminders_sent': sent})
+                _json(self, 200, {'ok': True, 'reminders_sent': _remind_snapshot_check(conn)})
 
             else:
                 _json(self, 400, {'error': f'unknown action: {action}'})

@@ -190,6 +190,27 @@ def today_str():
     return datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
 
+def get_bot_state(conn, user_id):
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM bot_state WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def set_bot_state(conn, user_id, state, data=None):
+    now = datetime.now(timezone.utc).isoformat()
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO bot_state (user_id, state, data, updated_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                state = EXCLUDED.state,
+                data = EXCLUDED.data,
+                updated_at = EXCLUDED.updated_at
+        """, (user_id, state, data, now))
+    conn.commit()
+
+
 def _time_to_minutes(time_str):
     if not time_str:
         return None
@@ -296,23 +317,57 @@ def get_carryover_cash(conn, date_str):
         datetime.strptime(date_str, '%Y-%m-%d') - timedelta(days=1)
     ).strftime('%Y-%m-%d')
     previous_session = get_session(conn, previous_day)
-    if not previous_session:
-        return 0.0
-    if previous_session.get('closing_cash') is None:
-        return 0.0
+    if previous_session:
+        if previous_session.get('closing_cash') is not None:
+            carryover = float(previous_session.get('closing_cash') or 0)
+            closed_time = previous_session.get('closed_time')
+            if closed_time:
+                post_close_ops = get_summary_day(conn, previous_day, cutoff_time=closed_time, after_cutoff=True)
+                carryover = round(
+                    carryover
+                    - float(post_close_ops.get('cash_withdrawal') or 0)
+                    + float(post_close_ops.get('cash_deposit') or 0)
+                    - float(post_close_ops.get('expenses') or 0),
+                    2
+                )
+            return carryover
 
-    carryover = float(previous_session.get('closing_cash') or 0)
-    closed_time = previous_session.get('closed_time')
-    if closed_time:
-        post_close_ops = get_summary_day(conn, previous_day, cutoff_time=closed_time, after_cutoff=True)
-        carryover = round(
-            carryover
-            - float(post_close_ops.get('cash_withdrawal') or 0)
-            + float(post_close_ops.get('cash_deposit') or 0)
-            - float(post_close_ops.get('expenses') or 0),
-            2
-        )
-    return carryover
+    snapshots = get_snapshots(conn, previous_day)
+    last_with_cash = next((s for s in reversed(snapshots) if s.get('cash_amount') is not None), None)
+    if last_with_cash:
+        return round(float(last_with_cash.get('cash_amount') or 0), 2)
+    return 0.0
+
+
+def session_has_activity(conn, date_str):
+    """Return True if the session date already has local activity."""
+    session = get_session(conn, date_str)
+    if session and any([
+        float(session.get('closing_cash') or 0) != 0,
+        int(session.get('coffee_portions') or 0) != 0,
+        float(session.get('card_income') or 0) != 0,
+        bool(session.get('is_finalized')),
+    ]):
+        return True
+
+    if get_snapshots(conn, date_str):
+        return True
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM records
+            WHERE date = %s
+              AND (
+                COALESCE(cash_income, 0) <> 0 OR
+                COALESCE(card_income, 0) <> 0 OR
+                COALESCE(coffee_portions, 0) <> 0 OR
+                COALESCE(cash_deposit, 0) <> 0 OR
+                COALESCE(cash_withdrawal, 0) <> 0 OR
+                COALESCE(expenses, 0) <> 0
+              )
+        """, (date_str,))
+        return (cur.fetchone()[0] or 0) > 0
 
 
 def get_effective_summary_day(conn, date_str, session=None):
@@ -415,7 +470,7 @@ def get_or_create_session(conn, date_str):
         session = cur.fetchone()
         if session:
             session_dict = dict(session)
-            if not session_dict.get('is_finalized'):
+            if not session_dict.get('is_finalized') and not session_has_activity(conn, date_str):
                 opening_cash = get_carryover_cash(conn, date_str)
                 if float(session_dict.get('opening_cash') or 0) != float(opening_cash or 0):
                     cur.execute(
