@@ -1219,6 +1219,13 @@ def delete_shift(conn, date: str, shift_num: int):
     conn.commit()
 
 
+def clear_worker_shifts(conn, date: str, user_id: int):
+    """Remove all shifts for a worker on a specific date."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM shifts WHERE date = %s AND user_id = %s", (date, user_id))
+    conn.commit()
+
+
 def get_workers(conn) -> list:
     """Get all approved workers."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

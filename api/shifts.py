@@ -13,7 +13,7 @@ from datetime import date as date_cls, timedelta
 
 from _db import (
     get_conn, ensure_tables, get_user, ADMIN_ID,
-    get_shifts_range, set_shift, delete_shift,
+    get_shifts_range, set_shift, delete_shift, clear_worker_shifts,
     get_workers, request_swap, respond_swap, get_pending_swaps, is_admin,
     notify_admins, notify_user, get_notification_settings, set_notification_settings
 )
@@ -156,10 +156,15 @@ class handler(BaseHTTPRequestHandler):
                     wname = n or worker_user.get('username') or f'#{worker_id}'
 
                 saved = []
+                days_off = 0
                 for item in assignments:
                     date_val = item.get('date')
                     shift_num = int(item.get('shift_num', 0) or 0)
                     if not date_val:
+                        continue
+                    if shift_num == -1:
+                        clear_worker_shifts(conn, date_val, worker_id)
+                        days_off += 1
                         continue
                     if shift_num not in (1, 2):
                         continue
@@ -175,14 +180,20 @@ class handler(BaseHTTPRequestHandler):
                     )
                     saved.append(shift)
 
-                if not saved:
+                if not saved and not days_off:
                     _json(self, 400, {'error': 'no valid assignments'})
                     return
 
                 if notify_worker and worker_id != uid:
-                    preview = ', '.join(f"{item['date']} ({item.get('shift_num', 1)})" for item in assignments[:8] if item.get('date'))
-                    if len(saved) > 8:
-                        preview += f" +{len(saved) - 8}"
+                    preview_items = []
+                    for item in assignments[:8]:
+                        if not item.get('date'):
+                            continue
+                        marker = 'вихідний' if int(item.get('shift_num', 0) or 0) == -1 else item.get('shift_num', 1)
+                        preview_items.append(f"{item['date']} ({marker})")
+                    preview = ', '.join(preview_items)
+                    if (len(saved) + days_off) > 8:
+                        preview += f" +{(len(saved) + days_off) - 8}"
                     notify_user(
                         conn,
                         worker_id,
@@ -195,7 +206,7 @@ class handler(BaseHTTPRequestHandler):
                     f'đź“… <b>ĐźĐ°ĐşĐµŃ‚Đ˝Đľ Đ´ĐľĐ´Đ°Đ˝Đľ Đ·ĐĽŃ–Đ˝Đ¸</b>\nđź‘¤ {wname}\nĐšÑ–Ð»ÑŒÐºÑ–ÑÑ‚ÑŒ: {len(saved)}',
                     setting_key='on_shift_assigned'
                 )
-                _json(self, 200, {'ok': True, 'count': len(saved), 'shifts': saved})
+                _json(self, 200, {'ok': True, 'count': len(saved), 'days_off': days_off, 'shifts': saved})
 
             elif action == 'delete':
                 if not is_admin(conn, uid):

@@ -544,6 +544,24 @@ document.addEventListener('touchend', function(e) {
         </button>
 
         <div id="exportStatus" style="text-align:center; font-size:0.82rem; color:var(--hint); min-height:20px"></div>
+
+        <div class="section-title" style="margin-top:22px">PDF графіка змін</div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-label">Період графіка</div>
+          <div style="display:flex; gap:8px; margin-top:8px">
+            <button id="shiftExpBiweek" class="fmt-btn active" onclick="selectShiftExpPeriod('biweek',this)">2 тижні</button>
+            <button id="shiftExpMonth" class="fmt-btn" onclick="selectShiftExpPeriod('month',this)">Місяць</button>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-label">Дата-орієнтир для графіка</div>
+          <input type="date" id="shiftExportDate" style="margin-top:8px; width:100%; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--text); font-size:1rem; outline:none">
+        </div>
+        <button id="generateShiftExportBtn" onclick="generateShiftExport()"
+          style="width:100%; background:rgba(58,134,255,0.14); color:#8db7ff; border:1px solid rgba(58,134,255,0.45); border-radius:12px; padding:14px; font-size:1rem; font-weight:600; cursor:pointer; margin-bottom:12px">
+          📅 Відкрити графік для друку / PDF
+        </button>
+        <div id="shiftExportStatus" style="text-align:center; font-size:0.82rem; color:var(--hint); min-height:20px"></div>
       </div>
     </div>
 
@@ -1359,6 +1377,8 @@ async function init() {
       // Set default date for export
       const expDate = document.getElementById('exportDate');
       if (expDate) expDate.value = new Date().toISOString().slice(0,10);
+      const shiftExpDate = document.getElementById('shiftExportDate');
+      if (shiftExpDate) shiftExpDate.value = new Date().toISOString().slice(0,10);
       // Show export drawer item for admins
       if (isAdminUser()) {
         const exportItem = document.getElementById('dItem-export');
@@ -1412,6 +1432,7 @@ init();
     // Export tab state
     let exportFmt = 'csv';
     let exportPeriod = 'day';
+    let shiftExportPeriod = 'biweek';
 
     function selectFmt(fmt, btn) {
       exportFmt = fmt;
@@ -1422,6 +1443,12 @@ init();
     function selectExpPeriod(period, btn) {
       exportPeriod = period;
       document.querySelectorAll('.fmt-btn[id^="exp"]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    function selectShiftExpPeriod(period, btn) {
+      shiftExportPeriod = period === 'month' ? 'month' : 'biweek';
+      document.querySelectorAll('.fmt-btn[id^="shiftExp"]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
     }
 
@@ -1552,6 +1579,25 @@ init();
     }
 
     // ── ENTER TAB ────────────────────────────────────────────────────────────────
+
+    function generateShiftExport() {
+      if (!currentUser) return;
+      const dateVal = document.getElementById('shiftExportDate').value;
+      const status = document.getElementById('shiftExportStatus');
+      const btn = document.getElementById('generateShiftExportBtn');
+      if (!dateVal) {
+        status.textContent = '⚠️ Оберіть дату';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '⏳ Формуємо...';
+      status.textContent = '';
+      const url = `/api/export?user_id=${currentUser.id}&report=shifts&period=${shiftExportPeriod}&date=${dateVal}&format=html`;
+      window.open(url, '_blank');
+      status.textContent = '✅ Графік відкрито у новій вкладці';
+      btn.disabled = false;
+      btn.textContent = '📅 Відкрити графік для друку / PDF';
+    }
 
     const DENOMINATIONS = [500, 200, 100, 50, 20, 10, 5, 2, 1];
     const _dc = {}; // denomination counts: _dc['snap'][500] = 3
@@ -2091,17 +2137,12 @@ init();
       myKeys.forEach(key => {
         const meta = NOTIF_LABELS[key];
         const enabled = !!s[key];
-        html += `<div class="brow">
-          <span class="brow-label">${meta.icon} ${meta.label}</span>
-          <label style="position:relative;display:inline-block;width:40px;height:22px;cursor:pointer">
-            <input type="checkbox" id="notif_${key}" ${enabled ? 'checked' : ''}
-              onchange="saveNotifSetting('${key}', this.checked)"
-              style="opacity:0;width:0;height:0;position:absolute">
-            <span id="notif_toggle_${key}" style="position:absolute;inset:0;border-radius:11px;transition:.2s;background:${enabled ? 'var(--green)' : '#334'};border:1px solid ${enabled ? 'var(--green)' : '#445'}">
-              <span style="position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:2px;transition:.2s;left:${enabled ? '20px' : '2px'}"></span>
-            </span>
-          </label>
-        </div>`;
+        html += `<label class="brow" for="notif_${key}" style="gap:10px;cursor:pointer">
+          <input type="checkbox" id="notif_${key}" ${enabled ? 'checked' : ''}
+            onchange="saveNotifSetting('${key}', this.checked)"
+            style="width:18px;height:18px;cursor:pointer;accent-color:var(--green);margin:0;flex:0 0 auto">
+          <span class="brow-label" style="display:flex;align-items:center;gap:8px">${meta.icon} ${meta.label}</span>
+        </label>`;
       });
       html += '</div>';
 
@@ -2110,7 +2151,7 @@ init();
           <div class="breakdown">
             <div class="brow" style="flex-direction:column;align-items:flex-start;gap:4px">
               <span style="font-size:0.8rem;color:var(--hint)">При додаванні зміни в графік можна окремо вирішити, чи повідомляти працівника.</span>
-              <span style="font-size:0.75rem;color:var(--hint)">Адмінський тумблер вище керує тільки повідомленнями для адміністраторів.</span>
+              <span style="font-size:0.75rem;color:var(--hint)">Адмінський чекбокс вище керує тільки повідомленнями для адміністраторів.</span>
             </div>
           </div>`;
       }
@@ -2144,6 +2185,33 @@ init();
     }
 
     // ── SHIFTS TAB ─────────────────────────────────────────────────────────────
+    saveNotifSetting = async function(key, value) {
+      if (!currentUser) return;
+      const input = document.getElementById(`notif_${key}`);
+      if (input) input.disabled = true;
+      try {
+        const res = await fetch(`${API}/api/notifications`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            action: 'update_settings',
+            user_id: currentUser.id,
+            [key]: value ? 1 : 0
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'save failed');
+        _notifSettings = data.settings || { ..._notifSettings, [key]: value ? 1 : 0 };
+        renderNotifSettings();
+      } catch (e) {
+        if (_notifSettings && input) input.checked = !!_notifSettings[key];
+        showToast('❌ Помилка збереження');
+      } finally {
+        const refreshed = document.getElementById(`notif_${key}`);
+        if (refreshed) refreshed.disabled = false;
+      }
+    };
+
     let shiftsData = { shifts: [], workers: [], pending_swaps: [], is_admin: false };
     let shiftsWeekOffset = 0;
     let shiftsViewMode = 'biweek';
@@ -2234,7 +2302,6 @@ init();
           <button class="mode-btn ${shiftsViewMode === 'biweek' ? 'active' : ''}" onclick="setShiftsViewMode('biweek')">2 тижні</button>
           <button class="mode-btn ${shiftsViewMode === 'month' ? 'active' : ''}" onclick="setShiftsViewMode('month')">Місяць</button>
           ${isAdm ? `<button class="mode-btn" onclick="openBatchShiftPlanner()">Пакетно</button>` : ''}
-          <button class="mode-btn" onclick="printShiftsPdf()">PDF</button>
         </div>
       `;
 
@@ -2532,7 +2599,6 @@ init();
           <button class="mode-btn ${shiftsViewMode === 'biweek' ? 'active' : ''}" onclick="setShiftsViewMode('biweek')">2 тижні</button>
           <button class="mode-btn ${shiftsViewMode === 'month' ? 'active' : ''}" onclick="setShiftsViewMode('month')">Місяць</button>
           ${isAdm ? `<button class="mode-btn" onclick="openBatchShiftPlanner()">Пакетно</button>` : ''}
-          <button class="mode-btn" onclick="printShiftsPdf()">PDF</button>
         </div>
       `;
 
@@ -2573,7 +2639,8 @@ init();
         hoursMap[workerKey].shifts += 1;
       });
 
-      const workerEntries = Object.values(hoursMap);
+      let workerEntries = Object.values(hoursMap);
+      if (!isAdm) workerEntries = hoursMap[String(currentUser.id)] ? [hoursMap[String(currentUser.id)]] : [];
       if (workerEntries.length) {
         html += `<div class="section-title">⏱ Відпрацьовано в цьому діапазоні</div><div class="breakdown" style="margin-bottom:14px">`;
         workerEntries.sort((a, b) => b.mins - a.mins).forEach(worker => {
@@ -2660,7 +2727,8 @@ init();
                 <div style="font-size:0.75rem;color:var(--hint)">${weekdayFmt.format(d)}</div>
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button type="button" class="mode-btn active" data-batch-choice="0" onclick="setBatchPlannerShift('${date}', 0)">Без зміни</button>
+                <button type="button" class="mode-btn active" data-batch-choice="0" onclick="setBatchPlannerShift('${date}', 0)">Не чіпати</button>
+                <button type="button" class="mode-btn" data-batch-choice="-1" onclick="setBatchPlannerShift('${date}', -1)">Вихідний</button>
                 <button type="button" class="mode-btn" data-batch-choice="1" onclick="setBatchPlannerShift('${date}', 1)">1 зміна</button>
                 <button type="button" class="mode-btn" data-batch-choice="2" onclick="setBatchPlannerShift('${date}', 2)">2 зміна</button>
               </div>
@@ -2690,7 +2758,7 @@ init();
       const startInput = row.querySelector('[data-batch-start]');
       const endInput = row.querySelector('[data-batch-end]');
       if (!startInput || !endInput) return;
-      if (!shiftNum) {
+      if (!shiftNum || shiftNum === -1) {
         startInput.value = '';
         endInput.value = '';
         startInput.disabled = true;
@@ -2731,7 +2799,7 @@ init();
           </div>
         </div>
         <div style="margin-bottom:10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--hint);font-size:0.8rem;line-height:1.4">
-          Виберіть для кожного дня окремо: без зміни, 1-шу або 2-гу зміну. Час можна відкоригувати по рядках перед збереженням.
+          Для кожного дня можна залишити без змін, поставити вихідний або вибрати 1-шу чи 2-гу зміну. Час можна відкоригувати по рядках перед збереженням.
         </div>
         <div style="margin-bottom:10px">
           <div class="card-label" style="margin-bottom:6px">Дні в діапазоні</div>
