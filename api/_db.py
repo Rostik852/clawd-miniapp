@@ -310,6 +310,19 @@ def get_effective_summary_day(conn, date_str, session=None):
     return get_summary_day(conn, date_str, cutoff_time=cutoff_time)
 
 
+def get_safe_balance(conn, date_str):
+    """Return cumulative safe balance through the end of the given date."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                COALESCE(SUM(cash_withdrawal), 0) - COALESCE(SUM(cash_deposit), 0) AS safe_balance
+            FROM records
+            WHERE date <= %s
+        """, (date_str,))
+        row = cur.fetchone()
+    return round(float(row[0] or 0), 2)
+
+
 DEFAULT_MODULES = {
     'cash_income':  True,
     'card_income':  True,
@@ -855,6 +868,7 @@ def get_daily_summary(conn, date_str):
     )
     avg_price_context = get_avg_price_context(conn, date_str, cash_income, card_income, coffee_portions)
     activity_log = get_daily_activity(conn, date_str)
+    safe_balance = get_safe_balance(conn, date_str)
 
     return {
         'date': date_str,
@@ -880,6 +894,7 @@ def get_daily_summary(conn, date_str):
         'snapshots': snaps,
         'hourly_sales': hourly_sales,
         'activity_log': activity_log,
+        'safe_balance': safe_balance,
     }
 
 

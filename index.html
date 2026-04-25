@@ -1120,6 +1120,23 @@ function renderAvgPriceContext(ctx) {
 }
 
 let _opInProgress = false;
+const DASH_SAFE_VISIBILITY_KEY = 'dashboard_show_safe_balance';
+
+function isSafeBalanceVisible() {
+  return localStorage.getItem(DASH_SAFE_VISIBILITY_KEY) !== '0';
+}
+
+function setSafeBalanceVisible(visible) {
+  localStorage.setItem(DASH_SAFE_VISIBILITY_KEY, visible ? '1' : '0');
+}
+
+function toggleSafeBalance() {
+  setSafeBalanceVisible(!isSafeBalanceVisible());
+  if (cachedSummary && document.getElementById('dashContent')) {
+    renderDayDashboard(cachedSummary, document.getElementById('dashContent'));
+  }
+}
+
 async function saveOperation(type) {
   if (!currentUser || _opInProgress) return;
   const amountId = type === 'deposit' ? 'depositAmount' : type === 'withdrawal' ? 'withdrawalAmount' : 'expenseAmount';
@@ -1306,8 +1323,10 @@ function renderDayDashboard(s, container) {
   const adminWit      = s.admin_withdrawals ?? 0;
   const adminDep      = s.admin_deposits ?? 0;
   const expenses      = s.expenses ?? 0;
+  const safeBalance   = s.safe_balance ?? 0;
   const avgCtx        = s.avg_price_context;
   const isAdmin       = isAdminUser();
+  const showSafe      = isAdmin && isSafeBalanceVisible();
 
   // Avg price — prefer saved value, fallback to calculated
   let avgHtml = '';
@@ -1346,6 +1365,25 @@ function renderDayDashboard(s, container) {
     </div>`;
   }).join('') : '<div class="empty-msg">Зрізів ще немає</div>';
 
+  const safeHtml = isAdmin ? `
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <span>🔐 Сейф</span>
+      <button onclick="toggleSafeBalance()"
+        style="background:transparent;border:1px solid var(--border);color:var(--hint);border-radius:999px;padding:6px 10px;font-size:0.78rem;cursor:pointer">
+        ${showSafe ? 'Сховати' : 'Показати'}
+      </button>
+    </div>
+    ${showSafe ? `
+      <div class="stat-card" style="background:rgba(255,170,0,0.08);border-color:rgba(255,170,0,0.25)">
+        <div class="stat-icon-wrap" style="background:rgba(255,170,0,0.14)"><span class="stat-icon">🔐</span></div>
+        <div class="stat-body">
+          <div class="stat-label">Баланс сейфу</div>
+          <div class="stat-value ${safeBalance < 0 ? 'neg' : 'orange'}">${fmt(safeBalance)}</div>
+          <div style="font-size:0.74rem;color:var(--hint);margin-top:2px">Виплати в сейф мінус вплати з сейфу</div>
+        </div>
+      </div>` : ''}
+  ` : '';
+
   container.innerHTML = `
     <!-- Головна картка: виторг -->
     <div class="stat-card" style="background:rgba(76,175,125,0.1);border-color:rgba(76,175,125,0.3)">
@@ -1374,6 +1412,8 @@ function renderDayDashboard(s, container) {
     ${renderHourlyChart(s.hourly_sales || [])}
 
     ${avgHtml}
+
+    ${safeHtml}
 
     <div class="section-title">Деталі дня</div>
     <div class="breakdown">
