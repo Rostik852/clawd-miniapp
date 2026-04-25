@@ -131,6 +131,7 @@ def ensure_tables(conn):
             ('daily_session', 'avg_price_total', 'REAL'),
             ('daily_session', 'closed_time', 'TEXT'),
             ('records', 'event_time', 'TEXT'),
+            ('notification_settings', 'on_shift_assigned', 'INTEGER DEFAULT 0'),
         ]:
             try:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {typ}")
