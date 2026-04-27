@@ -1104,6 +1104,28 @@ function openSnapshotsHistory() {
   loadSnapshotsHistory(input.value);
 }
 
+async function loadActivityHistory(dateStr) {
+  const target = document.getElementById("activityHistoryList");
+  if (!target || !currentUser) return;
+  target.innerHTML = '<div class="empty-msg">Завантаження...</div>';
+  try {
+    const res = await fetch(`${API}/api/data?type=summary&user_id=${currentUser.id}&date=${dateStr}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const title = document.getElementById("activityHistoryTitle");
+    if (title) title.textContent = `Загальний лог за ${dateStr}`;
+    target.innerHTML = renderActivityLog(data.activity_log || []);
+  } catch (e) {
+    target.innerHTML = '<div class="empty-msg">Не вдалося завантажити лог дій</div>';
+  }
+}
+
+function openActivityHistory() {
+  const input = document.getElementById("activityHistoryDate");
+  if (!input || !input.value) return;
+  loadActivityHistory(input.value);
+}
+
 function renderActivityLog(activities) {
   if (!activities || !activities.length) {
     return '<div class="empty-msg">ĐžĐżĐµŃ€Đ°Ń†Ń–Đą Đ·Đ° Ń†ĐµĐą Đ´ĐµĐ˝ŃŚ Ń‰Đµ Đ˝ĐµĐĽĐ°Ń”</div>';
@@ -1481,7 +1503,16 @@ function renderDayDashboard(s, container) {
     <div id="snapshotHistoryTitle" style="margin-top:10px;font-size:0.82rem;color:var(--hint)"></div>
     <div id="snapshotHistoryList"></div>
 
-    ${isAdmin ? `<div class="section-title" style="margin-top:14px">🧾 Усі операції за день</div><div>${renderActivityLog(s.activity_log || [])}</div>` : ""}
+    ${isAdmin ? `
+      <div class="section-title" style="margin-top:14px">🧾 Усі операції за день</div>
+      <div>${renderActivityLog(s.activity_log || [])}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+        <input type="date" id="activityHistoryDate" value="${today()}" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text)">
+        <button onclick="openActivityHistory()" style="background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:10px 14px;cursor:pointer">Показати лог за дату</button>
+      </div>
+      <div id="activityHistoryTitle" style="margin-top:10px;font-size:0.82rem;color:var(--hint)"></div>
+      <div id="activityHistoryList"></div>
+    ` : ""}
   `;
 }
 function renderAnalytics(data, container) {
