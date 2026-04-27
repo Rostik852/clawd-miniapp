@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import json
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-from datetime import date as date_cls, datetime, timezone
+from datetime import date as date_cls, datetime, timezone, timedelta
 
 import psycopg2.extras
 
@@ -74,6 +74,8 @@ class handler(BaseHTTPRequestHandler):
                 date = params.get('date', [today_str()])[0]
                 try:
                     summary = get_daily_summary(conn, date)
+                    previous_week_date = (datetime.strptime(date, '%Y-%m-%d').date() - timedelta(days=7)).isoformat()
+                    previous_week_summary = get_daily_summary(conn, previous_week_date)
                     result = {
                         "date": summary["date"],
                         "opening_cash": float(summary["opening_cash"] or 0),
@@ -96,6 +98,13 @@ class handler(BaseHTTPRequestHandler):
                         "saved_avg_price_cash": summary.get("saved_avg_price_cash"),
                         "saved_avg_price_total": summary.get("saved_avg_price_total"),
                         "avg_price_context": summary.get("avg_price_context"),
+                        "comparison": {
+                            "previous_week_date": previous_week_date,
+                            "previous_week_hourly_sales": previous_week_summary.get("hourly_sales", []),
+                            "previous_week_cash_income": previous_week_summary.get("cash_income", 0),
+                            "previous_week_card_income": previous_week_summary.get("card_income", 0),
+                            "previous_week_coffee_portions": previous_week_summary.get("coffee_portions", 0),
+                        },
                     }
                     _json_response(self, 200, result)
                 except Exception as e:

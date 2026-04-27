@@ -1,4 +1,4 @@
-import os
+﻿import os
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta, timezone
@@ -238,7 +238,7 @@ def _event_minutes(event):
     return None
 
 
-# ── User management ───────────────────────────────────────────────────────────
+# â”€â”€ User management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def save_user_raw(conn, user_id, username, first_name, last_name):
     """Upsert user record (no approval change)."""
@@ -510,7 +510,7 @@ def get_pending_users(conn):
         return [dict(r) for r in cur.fetchall()]
 
 
-# ── Daily session functions ───────────────────────────────────────────────────
+# â”€â”€ Daily session functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_or_create_session(conn, date_str):
     """Get today's session or create with opening cash from the previous day.
@@ -697,11 +697,11 @@ def get_record_operations(conn, date_str):
         )
         event_time = row.get('event_time') or ((row.get('created_at') or '')[11:16] if row.get('created_at') else '')
         amount_map = [
-            ('cash_deposit', 'deposit', 'Вплата', row.get('cash_deposit')),
-            ('cash_withdrawal', 'withdrawal', 'Виплата', row.get('cash_withdrawal')),
-            ('expenses', 'expense', 'Витрата', row.get('expenses')),
-            ('cash_income', 'cash_income', 'Готівка', row.get('cash_income')),
-            ('card_income', 'card_income', 'Картка', row.get('card_income')),
+            ('cash_deposit', 'deposit', 'Đ’ĐżĐ»Đ°Ń‚Đ°', row.get('cash_deposit')),
+            ('cash_withdrawal', 'withdrawal', 'Đ’Đ¸ĐżĐ»Đ°Ń‚Đ°', row.get('cash_withdrawal')),
+            ('expenses', 'expense', 'Đ’Đ¸Ń‚Ń€Đ°Ń‚Đ°', row.get('expenses')),
+            ('cash_income', 'cash_income', 'Đ“ĐľŃ‚Ń–Đ˛ĐşĐ°', row.get('cash_income')),
+            ('card_income', 'card_income', 'ĐšĐ°Ń€Ń‚ĐşĐ°', row.get('card_income')),
         ]
         for field, op_type, label, raw_amount in amount_map:
             amount = float(raw_amount or 0)
@@ -726,7 +726,7 @@ def get_record_operations(conn, date_str):
                 'id': f"record-{row['id']}-coffee",
                 'source_id': row['id'],
                 'type': 'coffee_count',
-                'label': 'Порції кави',
+                'label': 'ĐźĐľŃ€Ń†Ń–Ń— ĐşĐ°Đ˛Đ¸',
                 'time': event_time,
                 'created_at': row.get('created_at'),
                 'user_id': row['user_id'],
@@ -762,7 +762,7 @@ def get_daily_activity(conn, date_str):
     session = get_session(conn, date_str)
     if session and session.get('is_finalized') and session.get('closing_cash') is not None:
         closer = get_user(conn, session.get('closed_by')) if session.get('closed_by') else None
-        worker_name = 'Адмін'
+        worker_name = 'ĐĐ´ĐĽŃ–Đ˝'
         if closer:
             worker_name = (
                 ((closer.get('first_name') or '') + ' ' + (closer.get('last_name') or '')).strip()
@@ -773,7 +773,7 @@ def get_daily_activity(conn, date_str):
             'id': f"close-{date_str}",
             'source_id': date_str,
             'type': 'close_day',
-            'label': 'Закриття дня',
+            'label': 'Đ—Đ°ĐşŃ€Đ¸Ń‚Ń‚ŃŹ Đ´Đ˝ŃŹ',
             'time': session.get('closed_time') or ((session.get('closed_at') or '')[11:16] if session.get('closed_at') else ''),
             'created_at': session.get('closed_at'),
             'user_id': session.get('closed_by'),
@@ -966,7 +966,7 @@ def get_daily_summary(conn, date_str):
 
     snaps = get_snapshots(conn, date_str)
 
-    # If no formal closing — use last snapshot cash as effective closing
+    # If no formal closing â€” use last snapshot cash as effective closing
     effective_closing = closing
     last_snap_cash = None
     if snaps:
@@ -1086,12 +1086,35 @@ def get_period_summary(conn, period: str, ref_date: str) -> dict:
             row['avg_price_total'] = None
         snaps = get_snapshots(conn, ref_date)
         row['snapshots'] = [dict(s) for s in snaps]
+        previous_week_date = str(ref - _td(days=7))
+        previous_week_summary = get_daily_summary(conn, previous_week_date)
         totals = _calc_totals([row])
-        return {'period': 'day', 'date': ref_date, 'rows': [row], 'totals': totals, 'activity_log': get_daily_activity(conn, ref_date)}
+        return {
+            'period': 'day',
+            'date': ref_date,
+            'rows': [row],
+            'totals': totals,
+            'activity_log': get_daily_activity(conn, ref_date),
+            'comparison': {
+                'previous_week_date': previous_week_date,
+                'previous_week_hourly_sales': previous_week_summary.get('hourly_sales', []),
+                'previous_week_cash_income': previous_week_summary.get('cash_income', 0),
+                'previous_week_card_income': previous_week_summary.get('card_income', 0),
+                'previous_week_coffee_portions': previous_week_summary.get('coffee_portions', 0),
+            }
+        }
 
     elif period == 'week':
         dates = [str(ref - _td(days=i)) for i in range(6, -1, -1)]
-        return _get_rows_for_dates(conn, dates, 'week', ref_date)
+        previous_dates = [str((ref - _td(days=7)) - _td(days=i)) for i in range(6, -1, -1)]
+        result = _get_rows_for_dates(conn, dates, 'week', ref_date)
+        previous = _get_rows_for_dates(conn, previous_dates, 'week_compare', str(ref - _td(days=7)))
+        result['comparison'] = {
+            'previous_week_date': str(ref - _td(days=7)),
+            'rows': previous.get('rows', []),
+            'totals': previous.get('totals', {}),
+        }
+        return result
 
     elif period == 'month':
         import calendar as _cal
@@ -1121,42 +1144,7 @@ def _get_rows_for_dates(conn, dates, period, ref_date):
 
     rows = []
     for d in dates:
-        session = sessions.get(d)
-        if not session:
-            rows.append({
-                'date': d, 'cash_income': 0, 'card_income': 0,
-                'coffee_portions': 0, 'opening_cash': 0,
-                'closing_cash': None, 'is_finalized': False,
-                'admin_deposits': 0, 'admin_withdrawals': 0, 'expenses': 0,
-                'avg_price_cash': None, 'avg_price_total': None,
-            })
-            continue
-        ops = get_effective_summary_day(conn, d, session)
-        admin_dep = float(ops.get('cash_deposit') or 0)
-        admin_wit = float(ops.get('cash_withdrawal') or 0)
-        exp = float(ops.get('expenses') or 0)
-        _closing = session.get('closing_cash')
-        _opening = float(session.get('opening_cash') or 0)
-        # Correct formula: виручка = closing - opening - вплати + виплати + витрати
-        if _closing is not None:
-            cash_income = float(_closing) - _opening - admin_dep + admin_wit + exp
-        else:
-            cash_income = 0.0
-        rows.append({
-            'date': d,
-            'cash_income': round(cash_income, 2),
-            'card_income': float(session.get('card_income') or 0),
-            'coffee_portions': int(session.get('coffee_portions') or 0),
-            'opening_cash': _opening,
-            'closing_cash': float(_closing) if _closing is not None else None,
-            'is_finalized': bool(session.get('is_finalized')),
-            'admin_deposits': admin_dep,
-            'admin_withdrawals': admin_wit,
-            'expenses': exp,
-            'closed_at': session.get('closed_at'),
-            'avg_price_cash': round(float(cash_income) / int(session.get('coffee_portions') or 0), 2) if int(session.get('coffee_portions') or 0) > 0 else None,
-            'avg_price_total': round((float(cash_income) + float(session.get('card_income') or 0)) / int(session.get('coffee_portions') or 0), 2) if int(session.get('coffee_portions') or 0) > 0 else None,
-        })
+        rows.append(_normalize_period_row(conn, d, sessions.get(d)))
 
     totals = _calc_totals(rows)
     return {'period': period, 'date': ref_date, 'rows': rows, 'totals': totals}
@@ -1221,7 +1209,7 @@ def get_weekly_data(conn):
             admin_dep = float(ops.get('cash_deposit') or 0)
             admin_wit = float(ops.get('cash_withdrawal') or 0)
             exp = float(ops.get('expenses') or 0)
-            # Correct formula: виручка = closing - opening - вплати + виплати + витрати
+            # Correct formula: Đ˛Đ¸Ń€ŃŃ‡ĐşĐ° = closing - opening - Đ˛ĐżĐ»Đ°Ń‚Đ¸ + Đ˛Đ¸ĐżĐ»Đ°Ń‚Đ¸ + Đ˛Đ¸Ń‚Ń€Đ°Ń‚Đ¸
             if closing is not None:
                 cash_income = float(closing) - opening - admin_dep + admin_wit + exp
             else:
@@ -1247,7 +1235,60 @@ def get_weekly_data(conn):
     return result
 
 
-# ── Notifications ─────────────────────────────────────────────────────────────
+def _normalize_period_row(conn, date_str, session=None):
+    """Build one normalized analytics row for a given date."""
+    if session is None:
+        session = get_session(conn, date_str)
+    if not session:
+        return {
+            'date': date_str,
+            'cash_income': 0.0,
+            'card_income': 0.0,
+            'coffee_portions': 0,
+            'opening_cash': 0.0,
+            'closing_cash': None,
+            'is_finalized': False,
+            'admin_deposits': 0.0,
+            'admin_withdrawals': 0.0,
+            'expenses': 0.0,
+            'avg_price_cash': None,
+            'avg_price_total': None,
+            'closed_at': None,
+            'closed_time': None,
+        }
+
+    ops = get_effective_summary_day(conn, date_str, session)
+    admin_dep = float(ops.get('cash_deposit') or 0)
+    admin_wit = float(ops.get('cash_withdrawal') or 0)
+    exp = float(ops.get('expenses') or 0)
+    _closing = session.get('closing_cash')
+    _opening = float(session.get('opening_cash') or 0)
+    if _closing is not None:
+        cash_income = float(_closing) - _opening - admin_dep + admin_wit + exp
+    else:
+        cash_income = 0.0
+
+    coffee = int(session.get('coffee_portions') or 0)
+    card = float(session.get('card_income') or 0)
+    return {
+        'date': date_str,
+        'cash_income': round(cash_income, 2),
+        'card_income': card,
+        'coffee_portions': coffee,
+        'opening_cash': _opening,
+        'closing_cash': float(_closing) if _closing is not None else None,
+        'is_finalized': bool(session.get('is_finalized')),
+        'admin_deposits': admin_dep,
+        'admin_withdrawals': admin_wit,
+        'expenses': exp,
+        'closed_at': session.get('closed_at'),
+        'closed_time': session.get('closed_time'),
+        'avg_price_cash': round(float(cash_income) / coffee, 2) if coffee > 0 else None,
+        'avg_price_total': round((float(cash_income) + card) / coffee, 2) if coffee > 0 else None,
+    }
+
+
+# â”€â”€ Notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_notification_settings(conn, user_id: int) -> dict:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1333,7 +1374,7 @@ def notify_user(conn, user_id: int, text: str, setting_key: str = None):
     send_tg_message(user_id, text, token)
 
 
-# ── Shifts schedule ───────────────────────────────────────────────────────────
+# â”€â”€ Shifts schedule â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_shifts_range(conn, date_from: str, date_to: str) -> list:
     """Get all shifts in date range with worker info."""
