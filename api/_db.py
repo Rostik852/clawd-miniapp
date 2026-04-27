@@ -339,6 +339,55 @@ def get_carryover_cash(conn, date_str):
     return 0.0
 
 
+def apply_snapshot_auto_close(conn, date_str):
+    """Use the last snapshot of the day as an automatic closing reference.
+
+    This does not formally finalize the day. It only persists the latest known
+    cash/time/coffee into daily_session so the next day can inherit a stable
+    opening cash value, while still allowing admins to manually close or edit
+    the previous day later.
+    """
+    snapshots = get_snapshots(conn, date_str)
+    if not snapshots:
+        return None
+
+    last_with_cash = next((s for s in reversed(snapshots) if s.get('cash_amount') is not None), None)
+    last_with_coffee = next((s for s in reversed(snapshots) if s.get('coffee_portions') is not None), None)
+    if not last_with_cash and not last_with_coffee:
+        return None
+
+    session = get_session(conn, date_str)
+    if not session:
+        opening_cash = get_carryover_cash(conn, date_str)
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO daily_session (date, opening_cash)
+                VALUES (%s, %s)
+                ON CONFLICT (date) DO NOTHING
+            """, (date_str, opening_cash))
+        conn.commit()
+        session = get_session(conn, date_str)
+
+    updates = {}
+    if last_with_cash:
+        last_cash = round(float(last_with_cash.get('cash_amount') or 0), 2)
+        last_time = last_with_cash.get('time')
+        if float(session.get('closing_cash') or 0) != last_cash or session.get('closing_cash') is None:
+            updates['closing_cash'] = last_cash
+        if last_time and session.get('closed_time') != last_time:
+            updates['closed_time'] = last_time
+
+    if last_with_coffee:
+        last_coffee = int(last_with_coffee.get('coffee_portions') or 0)
+        if int(session.get('coffee_portions') or 0) != last_coffee:
+            updates['coffee_portions'] = last_coffee
+
+    if updates:
+        update_session(conn, date_str, **updates)
+        session = get_session(conn, date_str)
+    return session
+
+
 def session_has_activity(conn, date_str):
     """Return True if the session date already has local activity."""
     session = get_session(conn, date_str)
@@ -464,7 +513,17 @@ def get_pending_users(conn):
 # ── Daily session functions ───────────────────────────────────────────────────
 
 def get_or_create_session(conn, date_str):
-    """Get today's session or create with opening_cash from previous finalized carryover."""
+    """Get today's session or create with opening cash from the previous day.
+
+    Before opening a new day, the previous day's last snapshot is persisted as
+    an automatic closing reference. That value becomes the carryover cash for
+    the next day until a manual close overrides it.
+    """
+    previous_day = (
+        datetime.strptime(date_str, '%Y-%m-%d') - timedelta(days=1)
+    ).strftime('%Y-%m-%d')
+    apply_snapshot_auto_close(conn, previous_day)
+
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM daily_session WHERE date = %s", (date_str,))
         session = cur.fetchone()
