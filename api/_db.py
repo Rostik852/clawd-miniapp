@@ -304,6 +304,34 @@ def get_summary_day(conn, date_str, cutoff_time=None, after_cutoff=False):
         return dict(cur.fetchone())
 
 
+def get_effective_cash_reference(conn, date_str, session=None):
+    """Return the cash amount/time that should anchor revenue calculations."""
+    if session is None:
+        session = get_session(conn, date_str)
+
+    if session and session.get('closing_cash') is not None:
+        return {
+            'cash_amount': float(session.get('closing_cash') or 0),
+            'cutoff_time': session.get('closed_time'),
+            'from_snapshot': False,
+        }
+
+    snapshots = get_snapshots(conn, date_str)
+    last_with_cash = next((s for s in reversed(snapshots) if s.get('cash_amount') is not None), None)
+    if last_with_cash:
+        return {
+            'cash_amount': float(last_with_cash.get('cash_amount') or 0),
+            'cutoff_time': last_with_cash.get('time'),
+            'from_snapshot': True,
+        }
+
+    return {
+        'cash_amount': None,
+        'cutoff_time': None,
+        'from_snapshot': False,
+    }
+
+
 def get_carryover_cash(conn, date_str):
     """Compute opening cash for date_str from the previous day's finalized closing.
 
@@ -421,12 +449,8 @@ def session_has_activity(conn, date_str):
 
 def get_effective_summary_day(conn, date_str, session=None):
     """Return totals that belong to the operational day only."""
-    if session is None:
-        session = get_session(conn, date_str)
-    cutoff_time = None
-    if session and session.get('is_finalized') and session.get('closed_time'):
-        cutoff_time = session.get('closed_time')
-    return get_summary_day(conn, date_str, cutoff_time=cutoff_time)
+    reference = get_effective_cash_reference(conn, date_str, session=session)
+    return get_summary_day(conn, date_str, cutoff_time=reference.get('cutoff_time'))
 
 
 def get_safe_balance(conn, date_str):
@@ -956,7 +980,8 @@ def get_daily_summary(conn, date_str):
             'notes': None,
         }
 
-    admin_row = get_effective_summary_day(conn, date_str, session)
+    reference = get_effective_cash_reference(conn, date_str, session=session)
+    admin_row = get_summary_day(conn, date_str, cutoff_time=reference.get('cutoff_time'))
 
     opening = float(session.get('opening_cash') or 0)
     closing = session.get('closing_cash')
@@ -966,17 +991,8 @@ def get_daily_summary(conn, date_str):
 
     snaps = get_snapshots(conn, date_str)
 
-    # If no formal closing â€” use last snapshot cash as effective closing
-    effective_closing = closing
-    last_snap_cash = None
-    if snaps:
-        last_with_cash = next(
-            (s for s in reversed(snaps) if s.get('cash_amount') is not None), None
-        )
-        if last_with_cash:
-            last_snap_cash = float(last_with_cash['cash_amount'])
-    if effective_closing is None and last_snap_cash is not None:
-        effective_closing = last_snap_cash
+    effective_closing = reference.get('cash_amount')
+    last_snap_cash = effective_closing if reference.get('from_snapshot') else None
 
     latest_coffee = next((int(s['coffee_portions']) for s in reversed(snaps) if s.get('coffee_portions') is not None), 0)
     coffee_portions = int(session.get('coffee_portions') or 0) or latest_coffee
@@ -1054,11 +1070,12 @@ def get_period_summary(conn, period: str, ref_date: str) -> dict:
         session = get_session(conn, ref_date)
         if not session:
             return {'period': 'day', 'date': ref_date, 'rows': [], 'totals': {}, 'activity_log': []}
-        summary_row = get_effective_summary_day(conn, ref_date, session)
+        reference = get_effective_cash_reference(conn, ref_date, session=session)
+        summary_row = get_summary_day(conn, ref_date, cutoff_time=reference.get('cutoff_time'))
         dep = float(summary_row.get('cash_deposit') or 0)
         wit = float(summary_row.get('cash_withdrawal') or 0)
         exp = float(summary_row.get('expenses') or 0)
-        _closing = session.get('closing_cash')
+        _closing = reference.get('cash_amount')
         _opening = session.get('opening_cash') or 0
         if _closing is not None:
             cash_income = _closing - _opening - float(dep) + float(wit) + float(exp)
@@ -1071,6 +1088,7 @@ def get_period_summary(conn, period: str, ref_date: str) -> dict:
             'coffee_portions': session.get('coffee_portions') or 0,
             'opening_cash': session.get('opening_cash') or 0,
             'closing_cash': session.get('closing_cash'),
+            'effective_closing': _closing,
             'is_finalized': bool(session.get('is_finalized')),
             'admin_deposits': float(dep),
             'admin_withdrawals': float(wit),
@@ -1203,13 +1221,13 @@ def get_weekly_data(conn):
     for d in dates:
         if d in rows:
             row = rows[d]
-            ops = get_effective_summary_day(conn, d, row)
+            reference = get_effective_cash_reference(conn, d, session=row)
+            ops = get_summary_day(conn, d, cutoff_time=reference.get('cutoff_time'))
             opening = float(row.get('opening_cash') or 0)
-            closing = row.get('closing_cash')
+            closing = reference.get('cash_amount')
             admin_dep = float(ops.get('cash_deposit') or 0)
             admin_wit = float(ops.get('cash_withdrawal') or 0)
             exp = float(ops.get('expenses') or 0)
-            # Correct formula: Đ˛Đ¸Ń€ŃŃ‡ĐşĐ° = closing - opening - Đ˛ĐżĐ»Đ°Ń‚Đ¸ + Đ˛Đ¸ĐżĐ»Đ°Ń‚Đ¸ + Đ˛Đ¸Ń‚Ń€Đ°Ń‚Đ¸
             if closing is not None:
                 cash_income = float(closing) - opening - admin_dep + admin_wit + exp
             else:
@@ -1257,11 +1275,12 @@ def _normalize_period_row(conn, date_str, session=None):
             'closed_time': None,
         }
 
-    ops = get_effective_summary_day(conn, date_str, session)
+    reference = get_effective_cash_reference(conn, date_str, session=session)
+    ops = get_summary_day(conn, date_str, cutoff_time=reference.get('cutoff_time'))
     admin_dep = float(ops.get('cash_deposit') or 0)
     admin_wit = float(ops.get('cash_withdrawal') or 0)
     exp = float(ops.get('expenses') or 0)
-    _closing = session.get('closing_cash')
+    _closing = reference.get('cash_amount')
     _opening = float(session.get('opening_cash') or 0)
     if _closing is not None:
         cash_income = float(_closing) - _opening - admin_dep + admin_wit + exp
