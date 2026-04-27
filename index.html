@@ -2717,16 +2717,16 @@ init();
 
       let html = `
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <button onclick="shiftsWeekOffset--;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">â€ą</button>
+          <button onclick="shiftsWeekOffset--;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">‹</button>
           <div style="font-size:0.8rem;color:var(--hint);text-align:center">
             ${dates[0].slice(5)} â€” ${dates[13].slice(5)}
           </div>
-          <button onclick="shiftsWeekOffset++;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">â€ş</button>
+          <button onclick="shiftsWeekOffset++;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">›</button>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-          <button class="mode-btn ${shiftsViewMode === 'biweek' ? 'active' : ''}" onclick="setShiftsViewMode('biweek')">2 Ń‚Đ¸Đ¶Đ˝Ń–</button>
-          <button class="mode-btn ${shiftsViewMode === 'month' ? 'active' : ''}" onclick="setShiftsViewMode('month')">ĐśŃ–ŃŃŹŃ†ŃŚ</button>
-          ${isAdm ? `<button class="mode-btn" onclick="openBatchShiftPlanner()">ĐźĐ°ĐşĐµŃ‚Đ˝Đľ</button>` : ''}
+          <button class="mode-btn ${shiftsViewMode === 'biweek' ? 'active' : ''}" onclick="setShiftsViewMode('biweek')">2 тижні</button>
+          <button class="mode-btn ${shiftsViewMode === 'month' ? 'active' : ''}" onclick="setShiftsViewMode('month')">Місяць</button>
+          ${isAdm ? `<button class="mode-btn" onclick="openBatchShiftPlanner()">Пакетне</button>` : ''}
         </div>
       `;
 
@@ -2991,13 +2991,13 @@ init();
         const d = await res.json();
         if (d.ok) {
           closeModal();
-          showToast(`âś… Đ”ĐľĐ´Đ°Đ˝Đľ ${d.count} Đ·ĐĽŃ–Đ˝`);
+          showToast(`✅ Додано ${d.count} змін`);
           loadShifts();
         } else {
-          showToast('âťŚ ' + (d.error || 'ĐźĐľĐĽĐ¸Đ»ĐşĐ°'));
+          showToast('✖ ' + (d.error || 'Помилка'));
         }
       } catch(e) {
-        showToast('âťŚ ĐźĐľĐĽĐ¸Đ»ĐşĐ° Đ·ĘĽŃ”Đ´Đ˝Đ°Đ˝Đ˝ŃŹ');
+        showToast('✖ Помилка підключення');
       }
     }
 
@@ -3017,23 +3017,23 @@ init();
 
       let html = `
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <button onclick="shiftsWeekOffset--;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">â€ą</button>
+          <button onclick="shiftsWeekOffset--;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">‹</button>
           <div style="font-size:0.8rem;color:var(--hint);text-align:center">${title}</div>
-          <button onclick="shiftsWeekOffset++;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">â€ş</button>
+          <button onclick="shiftsWeekOffset++;loadShifts()" style="background:none;border:none;color:var(--accent);font-size:1.4rem;cursor:pointer;padding:4px 10px">›</button>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-          <button class="mode-btn ${shiftsViewMode === 'biweek' ? 'active' : ''}" onclick="setShiftsViewMode('biweek')">2 Ń‚Đ¸Đ¶Đ˝Ń–</button>
-          <button class="mode-btn ${shiftsViewMode === 'month' ? 'active' : ''}" onclick="setShiftsViewMode('month')">ĐśŃ–ŃŃŹŃ†ŃŚ</button>
-          ${isAdm ? `<button class="mode-btn" onclick="openBatchShiftPlanner()">ĐźĐ°ĐşĐµŃ‚Đ˝Đľ</button>` : ''}
+          <button class="mode-btn ${shiftsViewMode === 'biweek' ? 'active' : ''}" onclick="setShiftsViewMode('biweek')">2 тижні</button>
+          <button class="mode-btn ${shiftsViewMode === 'month' ? 'active' : ''}" onclick="setShiftsViewMode('month')">Місяць</button>
+          ${isAdm ? `<button class="mode-btn" onclick="openBatchShiftPlanner()">Пакетне</button>` : ''}
         </div>
       `;
 
       html += `<div style="display:flex;gap:8px;margin:-4px 0 14px;flex-wrap:wrap">
-        <button class="mode-btn" onclick="${isAdm ? 'openAdminDayOffModal()' : 'openDayOffRequestModal()'}">Đ’Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą</button>
+        <button class="mode-btn" onclick="${isAdm ? 'openAdminDayOffModal()' : 'openDayOffRequestModal()'}">Вихідний</button>
       </div>`;
 
       if (swaps.length) {
-        html += `<div class="section-title">đź”„ Đ—Đ°ĐżĐ¸Ń‚Đ¸ Đ˝Đ° ĐľĐ±ĐĽŃ–Đ˝ (${swaps.length})</div>`;
+        html += `<div class="section-title">🔄 Запити на обмін (${swaps.length})</div>`;
         swaps.forEach(sw => {
           const iAmRequester = sw.requester_id === currentUser.id;
           const iAmTarget = sw.target_id === currentUser.id;
@@ -3042,15 +3042,15 @@ init();
           html += `<div class="breakdown" style="margin-bottom:8px">
             <div class="brow" style="flex-direction:column;align-items:flex-start;gap:6px">
               <div style="font-size:0.82rem;color:var(--text)">
-                ${iAmRequester ? 'đź“¤ Đ’Đ°Ń Đ·Đ°ĐżĐ¸Ń‚' : `đź“Ą Đ—Đ°ĐżĐ¸Ń‚ Đ˛Ń–Đ´ <strong>${reqName}</strong>`}
-                â†’ <strong>${sw.date}</strong>
+                ${iAmRequester ? '📤 Ваш запит' : `📥 Запит від <strong>${reqName}</strong>`}
+                → <strong>${sw.date}</strong>
               </div>
               ${sw.notes ? `<div style="font-size:0.72rem;color:var(--hint)">${sw.notes}</div>` : ''}
               <div style="display:flex;gap:6px;margin-top:2px">
                 ${iAmTarget ? `
-                  <button onclick="respondSwap(${sw.id},true)" style="background:rgba(76,175,125,0.2);border:1px solid var(--green);color:var(--green);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">ĐźŃ€Đ¸ĐąĐ˝ŃŹŃ‚Đ¸</button>
-                  <button onclick="respondSwap(${sw.id},false)" style="background:rgba(224,85,85,0.1);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Đ’Ń–Đ´Ń…Đ¸Đ»Đ¸Ń‚Đ¸</button>
-                ` : `<span style="font-size:0.73rem;color:var(--hint)">ĐžŃ‡Ń–ĐşŃŃ” Đ˛Ń–Đ´ĐżĐľĐ˛Ń–Đ´Ń– Đ˛Ń–Đ´ ${tgtName}</span>`}
+                  <button onclick="respondSwap(${sw.id},true)" style="background:rgba(76,175,125,0.2);border:1px solid var(--green);color:var(--green);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Прийняти</button>
+                  <button onclick="respondSwap(${sw.id},false)" style="background:rgba(224,85,85,0.1);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Відхилити</button>
+                ` : `<span style="font-size:0.73rem;color:var(--hint)">Очікує відповіді від ${tgtName}</span>`}
               </div>
             </div>
           </div>`;
@@ -3061,16 +3061,16 @@ init();
       const pendingDayOffs = dayOffs.filter(item => item.status === 'pending');
       const approvedDayOffs = dayOffs.filter(item => item.status === 'approved');
       if (pendingDayOffs.length || approvedDayOffs.length) {
-        html += `<div class="section-title">đź—“ Đ’Đ¸Ń…Ń–Đ´Đ˝Ń–</div>`;
+        html += `<div class="section-title">📅 Вихідні</div>`;
         if (pendingDayOffs.length) {
           pendingDayOffs.forEach(item => {
             html += `<div class="breakdown" style="margin-bottom:8px">
               <div class="brow" style="flex-direction:column;align-items:flex-start;gap:6px">
-                <div style="font-size:0.82rem;color:var(--text)"><strong>${item.worker_name}</strong> Â· ${item.date} Â· ĐľŃ‡Ń–ĐşŃŃ” ĐżŃ–Đ´Ń‚Đ˛ĐµŃ€Đ´Đ¶ĐµĐ˝Đ˝ŃŹ</div>
+                <div style="font-size:0.82rem;color:var(--text)"><strong>${item.worker_name}</strong> · ${item.date} · очікує підтвердження</div>
                 ${item.notes ? `<div style="font-size:0.72rem;color:var(--hint)">${item.notes}</div>` : ''}
                 ${isAdm ? `<div style="display:flex;gap:6px">
-                  <button onclick="respondDayOff(${item.id},true)" style="background:rgba(76,175,125,0.2);border:1px solid var(--green);color:var(--green);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">ĐźŃ–Đ´Ń‚Đ˛ĐµŃ€Đ´Đ¸Ń‚Đ¸</button>
-                  <button onclick="respondDayOff(${item.id},false)" style="background:rgba(224,85,85,0.1);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Đ’Ń–Đ´Ń…Đ¸Đ»Đ¸Ń‚Đ¸</button>
+                  <button onclick="respondDayOff(${item.id},true)" style="background:rgba(76,175,125,0.2);border:1px solid var(--green);color:var(--green);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Підтвердити</button>
+                  <button onclick="respondDayOff(${item.id},false)" style="background:rgba(224,85,85,0.1);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:5px 12px;font-size:0.75rem;cursor:pointer">Відхилити</button>
                 </div>` : ''}
               </div>
             </div>`;
@@ -3079,7 +3079,7 @@ init();
         if (approvedDayOffs.length) {
           html += `<div class="breakdown" style="margin-bottom:14px">`;
           approvedDayOffs.forEach(item => {
-            html += `<div class="brow"><span class="brow-label">đźŚ´ ${item.worker_name} Â· ${item.date}</span><span class="brow-val">Đ˛Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą</span></div>`;
+            html += `<div class="brow"><span class="brow-label">🌴 ${item.worker_name} · ${item.date}</span><span class="brow-val">вихідний</span></div>`;
           });
           html += `</div>`;
         }
@@ -3100,18 +3100,19 @@ init();
       let workerEntries = Object.values(hoursMap);
       if (!isAdm) workerEntries = hoursMap[String(currentUser.id)] ? [hoursMap[String(currentUser.id)]] : [];
       if (workerEntries.length) {
-        html += `<div class="section-title">âŹ± Đ’Ń–Đ´ĐżŃ€Đ°Ń†ŃŚĐľĐ˛Đ°Đ˝Đľ Đ˛ Ń†ŃŚĐľĐĽŃ Đ´Ń–Đ°ĐżĐ°Đ·ĐľĐ˝Ń–</div><div class="breakdown" style="margin-bottom:14px">`;
+        html += `<div class="section-title">⏱ Відпрацьовано в цьому діапазоні</div><div class="breakdown" style="margin-bottom:14px">`;
         workerEntries.sort((a, b) => b.mins - a.mins).forEach(worker => {
           const h = Math.floor(worker.mins / 60);
           const m = worker.mins % 60;
-          const label = `${worker.name} Â· ${worker.shifts} ${worker.shifts === 1 ? 'Đ·ĐĽŃ–Đ˝Đ°' : 'Đ·ĐĽŃ–Đ˝Đ¸'}`;
-          const timeStr = m ? `${h} ĐłĐľĐ´ ${m} Ń…Đ˛` : `${h} ĐłĐľĐ´`;
-          html += `<div class="brow"><span class="brow-label">đź‘¤ ${label}</span><span class="brow-val">${timeStr}</span></div>`;
+          const shiftWord = worker.shifts === 1 ? 'зміна' : (worker.shifts >= 2 && worker.shifts <= 4 ? 'зміни' : 'змін');
+          const label = `${worker.name} · ${worker.shifts} ${shiftWord}`;
+          const timeStr = m ? `${h} год ${m} хв` : `${h} год`;
+          html += `<div class="brow"><span class="brow-label">👤 ${label}</span><span class="brow-val">${timeStr}</span></div>`;
         });
         html += `</div>`;
       }
 
-      html += `<div class="section-title">${shiftsViewMode === 'month' ? 'đź“… ĐśŃ–ŃŃŹŃ‡Đ˝Đ¸Đą ĐłŃ€Đ°Ń„Ń–Đş Đ·ĐĽŃ–Đ˝' : 'đź“… Đ“Ń€Đ°Ń„Ń–Đş Đ˝Đ° 2 Ń‚Đ¸Đ¶Đ˝Ń–'}</div>`;
+      html += `<div class="section-title">${shiftsViewMode === 'month' ? '📅 Місячний графік змін' : '📅 Графік на 2 тижні'}</div>`;
 
       dates.forEach(date => {
         const d = new Date(date + 'T00:00:00');
@@ -3124,17 +3125,17 @@ init();
         const shiftBlock = (shift, num) => {
           if (!shift) {
             if (!isAdm) return '';
-            return `<button onclick="openAddShift('${date}',${num})" style="flex:1;background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:var(--hint);font-size:0.75rem;cursor:pointer;text-align:center">+ Đ—ĐĽŃ–Đ˝Đ° ${num}</button>`;
+            return `<button onclick="openAddShift('${date}',${num})" style="flex:1;background:rgba(255,255,255,0.04);border:1px dashed rgba(255,255,255,0.1);border-radius:8px;padding:8px;color:var(--hint);font-size:0.75rem;cursor:pointer;text-align:center">+ Зміна ${num}</button>`;
           }
           const myShift = shift.user_id === currentUser.id;
           return `<div style="flex:1;background:${myShift ? 'rgba(200,149,108,0.15)' : 'rgba(40,50,100,0.5)'};border:1px solid ${myShift ? 'var(--accent)' : 'rgba(60,80,180,0.3)'};border-radius:8px;padding:8px;position:relative">
-            <div style="font-size:0.72rem;color:var(--hint)">Đ—ĐĽŃ–Đ˝Đ° ${num}</div>
+            <div style="font-size:0.72rem;color:var(--hint)">Зміна ${num}</div>
             <div style="font-size:0.82rem;font-weight:600;color:${myShift ? 'var(--accent)' : 'var(--text)'}">${shift.worker_name}</div>
-            ${shift.time_start ? `<div style="font-size:0.7rem;color:var(--hint)">${shift.time_start}â€“${shift.time_end || '?'}</div>` : ''}
+            ${shift.time_start ? `<div style="font-size:0.7rem;color:var(--hint)">${shift.time_start}-${shift.time_end || '?'}</div>` : ''}
             <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
-              ${myShift && !isAdm ? `<button onclick="openSwapRequest('${date}',${shift.user_id})" style="background:rgba(91,155,213,0.15);border:1px solid var(--blue);color:var(--blue);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">đź”„ ĐžĐ±ĐĽŃ–Đ˝</button>` : ''}
-              ${isAdm ? `<button onclick="openEditShift('${date}',${num},${shift.user_id},'${shift.time_start || ''}','${shift.time_end || ''}')" style="background:none;border:1px solid rgba(255,255,255,0.1);color:var(--hint);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">âśŹď¸Ź</button>` : ''}
-              ${isAdm ? `<button onclick="deleteShift('${date}',${num})" style="background:none;border:1px solid var(--red);color:var(--red);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">đź—‘</button>` : ''}
+              ${myShift && !isAdm ? `<button onclick="openSwapRequest('${date}',${shift.user_id})" style="background:rgba(91,155,213,0.15);border:1px solid var(--blue);color:var(--blue);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">🔄 Обмін</button>` : ''}
+              ${isAdm ? `<button onclick="openEditShift('${date}',${num},${shift.user_id},'${shift.time_start || ''}','${shift.time_end || ''}')" style="background:none;border:1px solid rgba(255,255,255,0.1);color:var(--hint);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">✏️</button>` : ''}
+              ${isAdm ? `<button onclick="deleteShift('${date}',${num})" style="background:none;border:1px solid var(--red);color:var(--red);border-radius:6px;padding:2px 8px;font-size:0.68rem;cursor:pointer">🗑</button>` : ''}
             </div>
           </div>`;
         };
@@ -3143,10 +3144,10 @@ init();
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
             <span style="font-weight:700;font-size:0.9rem;color:${isWeekend ? 'var(--orange)' : isToday ? 'var(--accent)' : 'var(--text)'}">${monthFmt.format(d)}</span>
             <span style="font-size:0.75rem;color:var(--hint)">${dayFmt.format(d)}</span>
-            ${isToday ? '<span style="font-size:0.65rem;color:var(--accent);margin-left:auto">ŃŃŚĐľĐłĐľĐ´Đ˝Ń–</span>' : ''}
+            ${isToday ? '<span style="font-size:0.65rem;color:var(--accent);margin-left:auto">сьогодні</span>' : ''}
           </div>
-          ${dayOffInfo.approved.length ? `<div style="font-size:0.74rem;color:var(--orange);margin-bottom:8px">đźŚ´ Đ’Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą: ${dayOffInfo.approved.map(item => item.worker_name).join(', ')}</div>` : ''}
-          ${isAdm && dayOffInfo.pending.length ? `<div style="font-size:0.74rem;color:var(--blue);margin-bottom:8px">đź“ť Đ—Đ°ĐżĐ¸Ń‚: ${dayOffInfo.pending.map(item => item.worker_name).join(', ')}</div>` : ''}
+          ${dayOffInfo.approved.length ? `<div style="font-size:0.74rem;color:var(--orange);margin-bottom:8px">🌴 Вихідний: ${dayOffInfo.approved.map(item => item.worker_name).join(', ')}</div>` : ''}
+          ${isAdm && dayOffInfo.pending.length ? `<div style="font-size:0.74rem;color:var(--blue);margin-bottom:8px">📋 Запит: ${dayOffInfo.pending.map(item => item.worker_name).join(', ')}</div>` : ''}
           <div style="display:flex;gap:8px">
             ${shiftBlock(s1, 1)}
             ${shiftBlock(s2, 2)}
@@ -3174,7 +3175,7 @@ init();
       const selectedWorkerId = Number(document.getElementById('batchWorker')?.value || 0);
       const dates = batchPlannerRange();
       if (!dates.length) {
-        container.innerHTML = '<div class="empty-msg">ĐžĐ±ĐµŃ€Ń–Ń‚ŃŚ ĐşĐľŃ€ĐµĐşŃ‚Đ˝Đ¸Đą Đ´Ń–Đ°ĐżĐ°Đ·ĐľĐ˝ Đ´Đ°Ń‚</div>';
+        container.innerHTML = '<div class="empty-msg">Оберіть коректний діапазон дат</div>';
         return;
       }
       const weekdayFmt = new Intl.DateTimeFormat('uk-UA', { weekday: 'short' });
@@ -3192,20 +3193,20 @@ init();
                 <div style="font-size:0.75rem;color:var(--hint)">${weekdayFmt.format(d)}</div>
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button type="button" class="mode-btn active" data-batch-choice="0" onclick="setBatchPlannerShift('${date}', 0)">ĐťĐµ Ń‡Ń–ĐżĐ°Ń‚Đ¸</button>
-                <button type="button" class="mode-btn" data-batch-choice="-1" onclick="setBatchPlannerShift('${date}', -1)">Đ’Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą</button>
-                <button type="button" class="mode-btn" data-batch-choice="1" onclick="setBatchPlannerShift('${date}', 1)">1 Đ·ĐĽŃ–Đ˝Đ°</button>
-                <button type="button" class="mode-btn" data-batch-choice="2" onclick="setBatchPlannerShift('${date}', 2)">2 Đ·ĐĽŃ–Đ˝Đ°</button>
+                <button type="button" class="mode-btn active" data-batch-choice="0" onclick="setBatchPlannerShift('${date}', 0)">Не чіпати</button>
+                <button type="button" class="mode-btn" data-batch-choice="-1" onclick="setBatchPlannerShift('${date}', -1)">Вихідний</button>
+                <button type="button" class="mode-btn" data-batch-choice="1" onclick="setBatchPlannerShift('${date}', 1)">1 зміна</button>
+                <button type="button" class="mode-btn" data-batch-choice="2" onclick="setBatchPlannerShift('${date}', 2)">2 зміна</button>
               </div>
             </div>
-            ${workerDayOff ? `<div style="font-size:0.74rem;color:${workerDayOff.status === 'approved' ? 'var(--orange)' : 'var(--blue)'};margin-bottom:8px">${workerDayOff.status === 'approved' ? 'đźŚ´ Đ’Đ¶Đµ ĐżĐľĐ·Đ˝Đ°Ń‡ĐµĐ˝Đľ Đ˛Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą' : 'đź“ť Đ„ Đ·Đ°ĐżĐ¸Ń‚ Đ˝Đ° Đ˛Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą'}${workerDayOff.notes ? ` Â· ${workerDayOff.notes}` : ''}</div>` : ''}
+            ${workerDayOff ? `<div style="font-size:0.74rem;color:${workerDayOff.status === 'approved' ? 'var(--orange)' : 'var(--blue)'};margin-bottom:8px">${workerDayOff.status === 'approved' ? '🌴 Вже позначено вихідний' : '📋 Є запит на вихідний'}${workerDayOff.notes ? ` · ${workerDayOff.notes}` : ''}</div>` : ''}
             <div style="display:flex;gap:8px">
               <div style="flex:1">
-                <div class="card-label" style="margin-bottom:4px">ĐźĐľŃ‡Đ°Ń‚ĐľĐş</div>
+                <div class="card-label" style="margin-bottom:4px">Початок</div>
                 <input type="time" data-batch-start value="" disabled style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none;opacity:0.55">
               </div>
               <div style="flex:1">
-                <div class="card-label" style="margin-bottom:4px">ĐšŃ–Đ˝ĐµŃ†ŃŚ</div>
+                <div class="card-label" style="margin-bottom:4px">Кінець</div>
                 <input type="time" data-batch-end value="" disabled style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none;opacity:0.55">
               </div>
             </div>
@@ -3247,36 +3248,36 @@ init();
       const workerOpts = workers.map(w => `<option value="${w.id}">${w.display_name} (${w.role})</option>`).join('');
       const range = shiftsDateRange();
       showModal(`
-        <div class="modal-title">đź“… ĐźĐ°ĐşĐµŃ‚Đ˝Đµ ĐżŃ€Đ¸Đ·Đ˝Đ°Ń‡ĐµĐ˝Đ˝ŃŹ Đ·ĐĽŃ–Đ˝</div>
+        <div class="modal-title">📅 Пакетне призначення змін</div>
         <div style="margin-bottom:10px">
-          <div class="card-label" style="margin-bottom:4px">ĐźŃ€Đ°Ń†Ń–Đ˛Đ˝Đ¸Đş</div>
+          <div class="card-label" style="margin-bottom:4px">Працівник</div>
           <select id="batchWorker" onchange="renderBatchPlannerDays()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text);font-size:0.9rem;outline:none">
-            <option value="">ĐžĐ±ĐµŃ€Ń–Ń‚ŃŚ...</option>${workerOpts}
+            <option value="">Оберіть...</option>${workerOpts}
           </select>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
           <div style="flex:1">
-            <div class="card-label" style="margin-bottom:4px">ĐźĐľŃ‡Đ°Ń‚ĐľĐş</div>
+            <div class="card-label" style="margin-bottom:4px">Початок</div>
             <input type="date" id="batchStartDate" value="${range.from}" onchange="renderBatchPlannerDays()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
           </div>
           <div style="flex:1">
-            <div class="card-label" style="margin-bottom:4px">ĐšŃ–Đ˝ĐµŃ†ŃŚ</div>
+            <div class="card-label" style="margin-bottom:4px">Кінець</div>
             <input type="date" id="batchEndDate" value="${range.to}" onchange="renderBatchPlannerDays()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:0.9rem;outline:none">
           </div>
         </div>
         <div style="margin-bottom:10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,0.04);color:var(--hint);font-size:0.8rem;line-height:1.4">
-          Đ”Đ»ŃŹ ĐşĐľĐ¶Đ˝ĐľĐłĐľ Đ´Đ˝ŃŹ ĐĽĐľĐ¶Đ˝Đ° Đ·Đ°Đ»Đ¸ŃĐ¸Ń‚Đ¸ Đ±ĐµĐ· Đ·ĐĽŃ–Đ˝, ĐżĐľŃŃ‚Đ°Đ˛Đ¸Ń‚Đ¸ Đ˛Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą Đ°Đ±Đľ Đ˛Đ¸Đ±Ń€Đ°Ń‚Đ¸ 1-ŃŃ Ń‡Đ¸ 2-ĐłŃ Đ·ĐĽŃ–Đ˝Ń. Đ§Đ°Ń ĐĽĐľĐ¶Đ˝Đ° Đ˛Ń–Đ´ĐşĐľŃ€Đ¸ĐłŃĐ˛Đ°Ń‚Đ¸ ĐżĐľ Ń€ŃŹĐ´ĐşĐ°Ń… ĐżĐµŃ€ĐµĐ´ Đ·Đ±ĐµŃ€ĐµĐ¶ĐµĐ˝Đ˝ŃŹĐĽ.
+          Для кожного дня можна залишити без змін, поставити вихідний або вибрати 1-шу чи 2-гу зміну. Час можна відкоригувати по рядках перед збереженням.
         </div>
         <div style="margin-bottom:10px">
-          <div class="card-label" style="margin-bottom:6px">Đ”Đ˝Ń– Đ˛ Đ´Ń–Đ°ĐżĐ°Đ·ĐľĐ˝Ń–</div>
+          <div class="card-label" style="margin-bottom:6px">Дні в діапазоні</div>
           <div id="batchDaysList" style="max-height:42vh;overflow:auto"></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:8px">
           <input type="checkbox" id="batchNotifyWorker" style="width:16px;height:16px;cursor:pointer">
-          <label for="batchNotifyWorker" style="font-size:0.82rem;color:var(--hint);cursor:pointer">ĐźĐľĐ˛Ń–Đ´ĐľĐĽĐ¸Ń‚Đ¸ ĐżŃ€Đ°Ń†Ń–Đ˛Đ˝Đ¸ĐşĐ°</label>
+          <label for="batchNotifyWorker" style="font-size:0.82rem;color:var(--hint);cursor:pointer">Повідомити працівника</label>
         </div>
-        <button onclick="saveBatchShifts()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">đź’ľ Đ—Đ°ŃŃ‚ĐľŃŃĐ˛Đ°Ń‚Đ¸</button>
-        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">ĐˇĐşĐ°ŃŃĐ˛Đ°Ń‚Đ¸</button>
+        <button onclick="saveBatchShifts()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">💾 Застосувати</button>
+        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">Скасувати</button>
       `);
       renderBatchPlannerDays();
     };
@@ -3296,9 +3297,9 @@ init();
 
     saveBatchShifts = async function() {
       const workerId = document.getElementById('batchWorker')?.value;
-      if (!workerId) { showToast('âš ď¸Ź ĐžĐ±ĐµŃ€Ń–Ń‚ŃŚ ĐżŃ€Đ°Ń†Ń–Đ˛Đ˝Đ¸ĐşĐ°'); return; }
+      if (!workerId) { showToast('⚠️ Оберіть працівника'); return; }
       const assignments = collectBatchAssignments();
-      if (!assignments.length) { showToast('âš ď¸Ź ĐťĐµĐĽĐ°Ń” Đ˛Đ¸Đ±Ń€Đ°Đ˝Đ¸Ń… Đ·ĐĽŃ–Đ˝'); return; }
+      if (!assignments.length) { showToast('⚠️ Немає вибраних змін'); return; }
       try {
         const res = await fetch(`${API}/api/shifts`, {
           method: 'POST',
@@ -3314,19 +3315,19 @@ init();
         const data = await res.json();
         if (data.ok) {
           closeModal();
-          showToast(`âś… Đ”ĐľĐ´Đ°Đ˝Đľ ${data.count} Đ·ĐĽŃ–Đ˝`);
+          showToast(`✅ Додано ${data.count} змін`);
           loadShifts();
         } else {
-          showToast('âťŚ ' + (data.error || 'ĐźĐľĐĽĐ¸Đ»ĐşĐ°'));
+          showToast('✖ ' + (data.error || 'Помилка'));
         }
       } catch (e) {
-        showToast('âťŚ ĐźĐľĐĽĐ¸Đ»ĐşĐ° Đ·ĘĽŃ”Đ´Đ˝Đ°Đ˝Đ˝ŃŹ');
+        showToast('✖ Помилка підключення');
       }
     };
 
     async function saveShift() {
       const wid = document.getElementById('shiftWorker').value;
-      if (!wid) { showToast('âš ď¸Ź ĐžĐ±ĐµŃ€Ń–Ń‚ŃŚ ĐżŃ€Đ°Ń†Ń–Đ˛Đ˝Đ¸ĐşĐ°'); return; }
+      if (!wid) { showToast('⚠️ Оберіть працівника'); return; }
       try {
         const res = await fetch(`${API}/api/shifts`, {
           method:'POST', headers:{'Content-Type':'application/json'},
@@ -3342,36 +3343,36 @@ init();
           })
         });
         const d = await res.json();
-        if (d.ok) { closeModal(); showToast('âś… Đ—ĐĽŃ–Đ˝Ń Đ·Đ±ĐµŃ€ĐµĐ¶ĐµĐ˝Đľ'); loadShifts(); }
-        else showToast('âťŚ ' + (d.error||'ĐźĐľĐĽĐ¸Đ»ĐşĐ°'));
-      } catch(e) { showToast('âťŚ ĐźĐľĐĽĐ¸Đ»ĐşĐ° Đ·ĘĽŃ”Đ´Đ˝Đ°Đ˝Đ˝ŃŹ'); }
+        if (d.ok) { closeModal(); showToast('✅ Зміну збережено'); loadShifts(); }
+        else showToast('✖ ' + (d.error||'Помилка'));
+      } catch(e) { showToast('✖ Помилка підключення'); }
     }
 
     async function deleteShift(date, num) {
-      if (!confirm(`Đ’Đ¸Đ´Đ°Đ»Đ¸Ń‚Đ¸ Đ·ĐĽŃ–Đ˝Ń ${num} Đ˝Đ° ${date}?`)) return;
+      if (!confirm(`Видалити зміну ${num} на ${date}?`)) return;
       try {
         const res = await fetch(`${API}/api/shifts`, {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ user_id: currentUser.id, action:'delete', date, shift_num: num })
         });
         const d = await res.json();
-        if (d.ok) { showToast('đź—‘ Đ’Đ¸Đ´Đ°Đ»ĐµĐ˝Đľ'); loadShifts(); }
-        else showToast('âťŚ ' + (d.error||'ĐźĐľĐĽĐ¸Đ»ĐşĐ°'));
-      } catch(e) { showToast('âťŚ ĐźĐľĐĽĐ¸Đ»ĐşĐ°'); }
+        if (d.ok) { showToast('🗑 Видалено'); loadShifts(); }
+        else showToast('✖ ' + (d.error||'Помилка'));
+      } catch(e) { showToast('✖ Помилка'); }
     }
 
     function openSwapRequest(date, targetId) {
       showModal(`
-        <div class="modal-title">đź”„ Đ—Đ°ĐżĐ¸Ń‚ Đ˝Đ° ĐľĐ±ĐĽŃ–Đ˝ Đ·ĐĽŃ–Đ˝ĐľŃŽ</div>
-        <div style="color:var(--hint);font-size:0.85rem;margin-bottom:16px">Đ”Đ°Ń‚Đ°: <strong style="color:var(--text)">${date}</strong></div>
+        <div class="modal-title">🔄 Запит на обмін зміною</div>
+        <div style="color:var(--hint);font-size:0.85rem;margin-bottom:16px">Дата: <strong style="color:var(--text)">${date}</strong></div>
         <input type="hidden" id="swapDate" value="${date}">
         <input type="hidden" id="swapTarget" value="${targetId}">
         <div style="margin-bottom:12px">
-          <div class="card-label" style="margin-bottom:4px">ĐźŃ€Đ¸Ń‡Đ¸Đ˝Đ° (Đ˝ĐµĐľĐ±ĐľĐ˛'ŃŹĐ·ĐşĐľĐ˛Đľ)</div>
-          <input type="text" id="swapNote" placeholder="Đ˝Đ°ĐżŃ€. Đ˝Đµ ĐĽĐľĐ¶Ń ĐżŃ€Đ¸ĐąŃ‚Đ¸" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none">
+          <div class="card-label" style="margin-bottom:4px">Причина (необовʼязково)</div>
+          <input type="text" id="swapNote" placeholder="напр. не можу прийти" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none">
         </div>
-        <button onclick="sendSwapRequest()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">đź“¤ ĐťĐ°Đ´Ń–ŃĐ»Đ°Ń‚Đ¸ Đ·Đ°ĐżĐ¸Ń‚</button>
-        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">ĐˇĐşĐ°ŃŃĐ˛Đ°Ń‚Đ¸</button>
+        <button onclick="sendSwapRequest()" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:13px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-bottom:8px">📤 Надіслати запит</button>
+        <button onclick="closeModal()" style="width:100%;background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:11px;color:var(--hint);cursor:pointer">Скасувати</button>
       `);
     }
 
@@ -3387,9 +3388,9 @@ init();
           })
         });
         const d = await res.json();
-        if (d.ok) { closeModal(); showToast('âś… Đ—Đ°ĐżĐ¸Ń‚ Đ˝Đ°Đ´Ń–ŃĐ»Đ°Đ˝Đľ'); loadShifts(); }
-        else showToast('âťŚ ' + (d.error||'ĐźĐľĐĽĐ¸Đ»ĐşĐ°'));
-      } catch(e) { showToast('âťŚ ĐźĐľĐĽĐ¸Đ»ĐşĐ°'); }
+        if (d.ok) { closeModal(); showToast('✅ Запит надіслано'); loadShifts(); }
+        else showToast('✖ ' + (d.error||'Помилка'));
+      } catch(e) { showToast('✖ Помилка'); }
     }
 
     async function respondSwap(swapId, accept) {
@@ -3399,9 +3400,9 @@ init();
           body: JSON.stringify({ user_id: currentUser.id, action:'swap_respond', swap_id: swapId, accept })
         });
         const d = await res.json();
-        if (d.ok) { showToast(accept ? 'âś… ĐžĐ±ĐĽŃ–Đ˝ ĐżŃ–Đ´Ń‚Đ˛ĐµŃ€Đ´Đ¶ĐµĐ˝Đľ' : 'âťŚ ĐžĐ±ĐĽŃ–Đ˝ Đ˛Ń–Đ´Ń…Đ¸Đ»ĐµĐ˝Đľ'); loadShifts(); }
-        else showToast('âťŚ ' + (d.error||'ĐźĐľĐĽĐ¸Đ»ĐşĐ°'));
-      } catch(e) { showToast('âťŚ ĐźĐľĐĽĐ¸Đ»ĐşĐ°'); }
+        if (d.ok) { showToast(accept ? '✅ Обмін підтверджено' : '✖ Обмін відхилено'); loadShifts(); }
+        else showToast('✖ ' + (d.error||'Помилка'));
+      } catch(e) { showToast('✖ Помилка'); }
     }
 
     // Generic modal helper

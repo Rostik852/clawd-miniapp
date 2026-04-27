@@ -264,14 +264,14 @@ class handler(BaseHTTPRequestHandler):
                     source='request',
                 )
                 req_user = get_user(conn, uid)
-                req_name = 'ĐźŃ€Đ°Ń†Ń–Đ˛Đ˝Đ¸Đş'
+                req_name = 'Працівник'
                 if req_user:
                     n = ((req_user.get('first_name') or '') + ' ' + (req_user.get('last_name') or '')).strip()
                     req_name = n or req_user.get('username') or f'#{uid}'
-                note_txt = f"\nđź’¬ {body['notes']}" if body.get('notes') else ''
+                note_txt = f"\n💬 {body['notes']}" if body.get('notes') else ''
                 notify_admins(
                     conn,
-                    f'đź—“ <b>Đ—Đ°ĐżĐ¸Ń‚ Đ˝Đ° Đ˛Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą</b>\nđź‘¤ {req_name}\nđź“… {body["date"]}{note_txt}',
+                    f'📅 <b>Запит на вихідний</b>\n👤 {req_name}\n📆 {body["date"]}{note_txt}',
                     setting_key='on_shift_assigned'
                 )
                 _json(self, 200, {'ok': True, 'day_off': req})
@@ -294,7 +294,7 @@ class handler(BaseHTTPRequestHandler):
                 notify_user(
                     conn,
                     worker_id,
-                    f'đź—“ <b>Đ’Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą ĐżŃ–Đ´Ń‚Đ˛ĐµŃ€Đ´Đ¶ĐµĐ˝Đľ</b>\nđź“… {body["date"]}',
+                    f'📅 <b>Вихідний підтверджено</b>\n📆 {body["date"]}',
                     setting_key='notify_shift_assigned'
                 )
                 _json(self, 200, {'ok': True, 'day_off': req})
@@ -313,7 +313,7 @@ class handler(BaseHTTPRequestHandler):
                 notify_user(
                     conn,
                     req['user_id'],
-                    f'đź—“ <b>Đ—Đ°ĐżĐ¸Ń‚ Đ˝Đ° Đ˛Đ¸Ń…Ń–Đ´Đ˝Đ¸Đą { "ĐżŃ–Đ´Ń‚Đ˛ĐµŃ€Đ´Đ¶ĐµĐ˝Đľ" if status == "approved" else "Đ˛Ń–Đ´Ń…Đ¸Đ»ĐµĐ˝Đľ" }</b>\nđź“… {req["date"]}',
+                    f'📅 <b>Запит на вихідний { "підтверджено" if status == "approved" else "відхилено" }</b>\n📆 {req["date"]}',
                     setting_key='notify_shift_assigned'
                 )
                 _json(self, 200, {'ok': True, 'day_off': req})
@@ -329,20 +329,20 @@ class handler(BaseHTTPRequestHandler):
                 )
                 # Notify target worker
                 req_user = get_user(conn, uid)
-                req_name = 'ĐšĐľĐ»ĐµĐłĐ°'
+                req_name = 'Колега'
                 if req_user:
                     n = ((req_user.get('first_name') or '') + ' ' + (req_user.get('last_name') or '')).strip()
                     req_name = n or req_user.get('username') or f'#{uid}'
-                note_txt = f'\nđź’¬ {body["notes"]}' if body.get('notes') else ''
+                note_txt = f'\n💬 {body["notes"]}' if body.get('notes') else ''
                 notify_user(conn, target_id,
-                    f'đź”„ <b>Đ—Đ°ĐżĐ¸Ń‚ Đ˝Đ° ĐľĐ±ĐĽŃ–Đ˝ Đ·ĐĽŃ–Đ˝ĐľŃŽ</b>\n'
-                    f'đź‘¤ {req_name} Ń…ĐľŃ‡Đµ ĐżĐľĐĽŃ–Đ˝ŃŹŃ‚Đ¸ŃŃŚ Đ˝Đ° {body["date"]}{note_txt}\n'
-                    f'Đ’Ń–Đ´ĐşŃ€Đ¸Đą Đ“Ń€Đ°Ń„Ń–Đş Đ·ĐĽŃ–Đ˝ Ń‰ĐľĐ± Đ˛Ń–Đ´ĐżĐľĐ˛Ń–ŃŃ‚Đ¸.',
+                    f'🔄 <b>Запит на обмін зміною</b>\n'
+                    f'👤 {req_name} хоче помінятися на {body["date"]}{note_txt}\n'
+                    f'Відкрий Графік змін, щоб відповісти.',
                     setting_key=None  # always deliver swap requests to target
                 )
                 # Notify admins
                 notify_admins(conn,
-                    f'đź”„ <b>Đ—Đ°ĐżĐ¸Ń‚ Đ˝Đ° ĐľĐ±ĐĽŃ–Đ˝</b>\nđź‘¤ {req_name} â†’ {body["date"]}',
+                    f'🔄 <b>Запит на обмін</b>\n👤 {req_name} -> {body["date"]}',
                     setting_key='on_swap_request'
                 )
                 _json(self, 200, {'ok': True, 'swap': swap})
